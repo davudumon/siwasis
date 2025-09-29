@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ArticleController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\WargaController;
 use Illuminate\Http\Request;
@@ -17,4 +18,5 @@ Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanc
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('warga', WargaController::class);
+    Route::apiResource('articles', ArticleController::class);
 });

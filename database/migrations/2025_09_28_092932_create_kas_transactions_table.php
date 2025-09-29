@@ -26,6 +26,7 @@ return new class extends Migration
             $table->enum('tipe', ["pemasukan", "pengeluaran"]);
             $table->decimal('jumlah');
             $table->text('keterangan');
+            $table->timestamps();
         });
 
         Schema::enableForeignKeyConstraints();

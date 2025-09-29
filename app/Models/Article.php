@@ -16,4 +16,8 @@ class Article extends Model
         'image_path',
         'published'
     ];
+
+    public function admin(){
+        return $this->belongsTo(Admin::class);
+    }
 }

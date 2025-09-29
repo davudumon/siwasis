@@ -21,6 +21,7 @@ return new class extends Migration
             $table->string('periode');
             $table->date('tanggal');
             $table->binary('keterangan');
+            $table->timestamps();
         });
 
         Schema::enableForeignKeyConstraints();

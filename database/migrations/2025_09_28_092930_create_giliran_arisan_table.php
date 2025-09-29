@@ -20,6 +20,7 @@ return new class extends Migration
             $table->integer('periode');
             $table->binary('status');
             $table->date('tanggal_dapat');
+            $table->timestamps();
         });
 
         Schema::enableForeignKeyConstraints();

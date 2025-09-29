@@ -24,6 +24,7 @@ return new class extends Migration
             $table->decimal('jumlah');
             $table->string('periode');
             $table->date('tanggal');
+            $table->timestamps();
         });
 
         Schema::enableForeignKeyConstraints();

@@ -21,7 +21,9 @@ return new class extends Migration
             $table->string('title');
             $table->text('description');
             $table->string('file_path');
-            $table->dateTime('uploaded_at');
+            $table->dateTime('uploaded_at');            
+            $table->timestamps();
+
         });
 
         Schema::enableForeignKeyConstraints();

@@ -19,6 +19,7 @@ return new class extends Migration
             $table->text('alamat');
             $table->string('telepon');
             $table->date('tanggal_lahir');
+            $table->timestamps();
         });
 
         Schema::enableForeignKeyConstraints();
