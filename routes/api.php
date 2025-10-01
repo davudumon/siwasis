@@ -2,13 +2,11 @@
 
 use App\Http\Controllers\ArticleController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\WargaController;
+use App\Http\Controllers\YoutubeLinkController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
-// Route::get('/user', function (Request $request) {
-//     return $request->user();
-// })->middleware('auth:sanctum');
 
 Route::post('/register', [AuthController::class, 'register']);
 
@@ -19,4 +17,6 @@ Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanc
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('warga', WargaController::class);
     Route::apiResource('articles', ArticleController::class);
+    Route::apiResource('yt_links', YoutubeLinkController::class);
+    Route::apiResource('document', DocumentController::class);
 });

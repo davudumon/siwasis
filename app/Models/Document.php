@@ -5,21 +5,19 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Warga extends Model
+class Document extends Model
 {
     use HasFactory;
 
-    protected $table = 'warga';
-
     protected $fillable = [
         'admin_id',
-        'nama',
-        'alamat',
-        'telepon',
-        'tanggal_lahir'
+        'title',
+        'description',
+        'file_path',
+        'uploaded_at'
     ];
 
-    protected function admin(){
-        $this->belongsTo(Admin::class);
+    public function admin(){
+        return $this->belongsTo('admin');
     }
 }

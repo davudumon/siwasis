@@ -15,6 +15,9 @@ return new class extends Migration
 
         Schema::create('warga', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('admin_id')
+                ->constrained('admin') // nama tabel admin
+                ->onDelete('cascade');
             $table->string('nama');
             $table->text('alamat');
             $table->string('telepon');

@@ -26,13 +26,13 @@ class ArticleController extends Controller
         $request->validate([
             'title'   => 'required|string|max:255',
             'content' => 'required',
-            'image'   => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'image_path'   => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
             'published' => 'nullable|date',
         ]);
 
         $path = null;
-        if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('articles', 'public');
+        if ($request->hasFile('image_path')) {
+            $path = $request->file('image_path')->store('articles', 'public');
         }
 
         $article = Article::create([
@@ -73,7 +73,7 @@ class ArticleController extends Controller
         ]);
 
         if ($request->hasFile('image')) {
-            // hapus gambar lama kalau ada
+            
             if ($article->image_path && Storage::disk('public')->exists($article->image_path)) {
                 Storage::disk('public')->delete($article->image_path);
             }

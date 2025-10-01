@@ -2,14 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Admin;
 use App\Models\Warga;
 use Illuminate\Http\Request;
-
 class WargaController extends Controller
 {
     public function index()
     {
-        return response()->json(Warga::all());
+        $warga = Warga::with('admin')->latest()->get();
+
+        return response()->json($warga, 201);
     }
 
     // tambah data warga
@@ -22,10 +24,17 @@ class WargaController extends Controller
             'tanggal_lahir' => 'required|date',
         ]);
 
-        $warga = Warga::create($request->all());
+        $warga = Warga::create([
+            'admin_id'      => $request->user()->id, 
+            'nama'          => $request->nama,
+            'alamat'        => $request->alamat,
+            'telepon'       => $request->telepon,
+            'tanggal_lahir' => $request->tanggal_lahir,
+        ]);
 
         return response()->json($warga, 201);
     }
+
 
     // tampilkan detail warga
     public function show($id)
