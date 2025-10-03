@@ -20,7 +20,7 @@ return new class extends Migration
                 ->onDelete('cascade');
             $table->string('nama');
             $table->text('alamat');
-            $table->string('telepon');
+            $table->enum('role', ["ketua", "wakil_ketua", "sekretaris", "bendahara", "warga"]);
             $table->date('tanggal_lahir');
             $table->timestamps();
         });

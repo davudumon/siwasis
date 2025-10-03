@@ -19,7 +19,7 @@ class Warga extends Model
         'tanggal_lahir'
     ];
 
-    protected function admin(){
-        $this->belongsTo(Admin::class);
+    public function admin(){
+        return $this->belongsTo(Admin::class);
     }
 }
