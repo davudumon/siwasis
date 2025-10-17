@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Admin;
 use App\Models\Warga;
 use Illuminate\Http\Request;
+
 class WargaController extends Controller
 {
     public function index()
@@ -20,15 +21,15 @@ class WargaController extends Controller
         $request->validate([
             'nama'          => 'required|string|max:255',
             'alamat'        => 'required|string',
-            'telepon'       => 'required|string|max:20',
+            'role'          => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga',
             'tanggal_lahir' => 'required|date',
         ]);
 
         $warga = Warga::create([
-            'admin_id'      => $request->user()->id, 
+            'admin_id'      => $request->user()->id,
             'nama'          => $request->nama,
             'alamat'        => $request->alamat,
-            'telepon'       => $request->telepon,
+            'role'          => $request->role ?? 'warga',
             'tanggal_lahir' => $request->tanggal_lahir,
         ]);
 
@@ -51,11 +52,16 @@ class WargaController extends Controller
         $request->validate([
             'nama'          => 'sometimes|required|string|max:255',
             'alamat'        => 'sometimes|required|string',
-            'telepon'       => 'sometimes|required|string|max:20',
+            'role'          => 'sometimes|in:ketua,wakil_ketua,sekretaris,bendahara,warga',
             'tanggal_lahir' => 'sometimes|date',
         ]);
 
-        $warga->update($request->all());
+        $warga->update([
+            'nama'          => $request->nama ?? $warga->nama,
+            'alamat'        => $request->alamat ?? $warga->alamat,
+            'role'          => $request->role ?? $warga->role,
+            'tanggal_lahir' => $request->tanggal_lahir ?? $warga->tanggal_lahir,
+        ]);
 
         return response()->json($warga);
     }

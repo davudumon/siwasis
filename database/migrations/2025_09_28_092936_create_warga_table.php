@@ -16,11 +16,11 @@ return new class extends Migration
         Schema::create('warga', function (Blueprint $table) {
             $table->id();
             $table->foreignId('admin_id')
-                ->constrained('admin') // nama tabel admin
+                ->constrained('admin')
                 ->onDelete('cascade');
             $table->string('nama');
             $table->text('alamat');
-            $table->enum('role', ["ketua", "wakil_ketua", "sekretaris", "bendahara", "warga"]);
+            $table->enum('role', ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'warga'])->default('warga');
             $table->date('tanggal_lahir');
             $table->timestamps();
         });
