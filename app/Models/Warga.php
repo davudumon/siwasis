@@ -22,4 +22,8 @@ class Warga extends Model
     public function admin(){
         return $this->belongsTo(Admin::class);
     }
+
+    public function giliran_arisan(){
+        return $this->hasMany(GiliranArisan::class);
+    }
 }

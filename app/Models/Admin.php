@@ -39,4 +39,8 @@ class Admin extends Authenticatable
     public function documents(){
         return $this->hasMany(Document::class);
     }
+
+    public function giliran_arisan(){
+        return $this->hasMany(GiliranArisan::class);
+    }
 }

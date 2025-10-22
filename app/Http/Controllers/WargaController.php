@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Admin;
+use App\Models\GiliranArisan;
 use App\Models\Warga;
 use Illuminate\Http\Request;
 
@@ -33,7 +34,21 @@ class WargaController extends Controller
             'tanggal_lahir' => $request->tanggal_lahir,
         ]);
 
-        return response()->json($warga, 201);
+        $existing_periode = GiliranArisan::select('periode')->distinct()->get();
+
+        foreach ($existing_periode as $periode) {
+            GiliranArisan::create([
+                'admin_id' => $request->user()->id,
+                'warga_id' => $warga->id,
+                'periode' => $periode->periode,
+                'status' => "belum_dapat"
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Data warga berhasil ditambahkan',
+            'data' => $warga, 
+        ],201);
     }
 
 
@@ -71,6 +86,6 @@ class WargaController extends Controller
         $warga = Warga::findOrFail($id);
         $warga->delete();
 
-        return response()->json(['message' => 'Warga deleted']);
+        return response()->json(['message' => 'Warga berhasil dihapus']);
     }
 }

@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Controllers\ArisanTransactionController;
 use App\Http\Controllers\ArticleController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\WargaController;
 use App\Http\Controllers\YoutubeLinkController;
+use App\Http\Controllers\GiliranArisanController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -19,4 +21,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('articles', ArticleController::class);
     Route::apiResource('yt_links', YoutubeLinkController::class);
     Route::apiResource('document', DocumentController::class);
+    Route::get('/giliran-arisan', [GiliranArisanController::class, 'index']);
+    Route::get('/giliran-arisan/belum-dapat', [GiliranArisanController::class, 'getBelumDapat']);
+    Route::post('/giliran-arisan', [GiliranArisanController::class, 'store']);
+    Route::post('/giliran-arisan/reset', [GiliranArisanController::class, 'resetPeriode']);
+    Route::post('/giliran-arisan/generate', [GiliranArisanController::class, 'generatePeriode']);
+    Route::get('/arisan/rekap', [ArisanTransactionController::class, 'index']);
+    Route::post('/arisan/toggle', [ArisanTransactionController::class, 'toggle']);
 });
