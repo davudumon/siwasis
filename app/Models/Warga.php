@@ -16,7 +16,8 @@ class Warga extends Model
         'nama',
         'alamat',
         'role',
-        'tanggal_lahir'
+        'tanggal_lahir',
+        'rt'
     ];
 
     public function admin(){

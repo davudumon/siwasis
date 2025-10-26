@@ -43,4 +43,8 @@ class Admin extends Authenticatable
     public function giliran_arisan(){
         return $this->hasMany(GiliranArisan::class);
     }
+
+    public function sampah_transaction(){
+        return $this->hasMany(SampahTransaction::class);
+    }
 }

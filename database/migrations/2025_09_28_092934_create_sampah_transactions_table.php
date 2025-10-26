@@ -16,13 +16,14 @@ return new class extends Migration
         Schema::create('sampah_transactions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('admin_id')
-                ->constrained('admin')   // karena nama tabelmu "admin"
+                ->constrained('admin')   
                 ->onDelete('cascade');
             $table->foreignId('warga_id')
-                ->constrained('warga')   // karena nama tabelmu "admin"
+                ->constrained('warga')   
                 ->onDelete('cascade');
             $table->decimal('jumlah');
-            $table->string('periode');
+            $table->enum('tipe', ['pemasukan', 'pengeluaran']);
+            $table->text('keterangan');
             $table->date('tanggal');
             $table->timestamps();
         });

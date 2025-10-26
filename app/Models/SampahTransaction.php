@@ -17,4 +17,12 @@ class SampahTransaction extends Model
         'jumlah',
         'periode'
     ];
+
+    public function admin(){
+        return $this->belongsTo(Admin::class);
+    }
+
+    public function warga(){
+       return $this->belongsTo(Warga::class);
+    }
 }

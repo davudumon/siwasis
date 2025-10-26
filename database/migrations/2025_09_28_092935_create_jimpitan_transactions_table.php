@@ -15,12 +15,16 @@ return new class extends Migration
 
         Schema::create('jimpitan_transactions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('admin_id')->references('id')->on('admin');
-            $table->foreignId('warga_id')->references('id')->on('warga');
+            $table->foreignId('admin_id')
+                ->constrained('admin')   
+                ->onDelete('cascade');
+            $table->foreignId('warga_id')
+                ->constrained('warga')   
+                ->onDelete('cascade');
             $table->decimal('jumlah');
-            $table->string('periode');
+            $table->enum('tipe', ['pemasukan', 'pengeluaran']);
+            $table->text('keterangan');
             $table->date('tanggal');
-            $table->binary('keterangan');
             $table->timestamps();
         });
 

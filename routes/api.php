@@ -7,6 +7,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\WargaController;
 use App\Http\Controllers\YoutubeLinkController;
 use App\Http\Controllers\GiliranArisanController;
+use App\Http\Controllers\KasWargaController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/giliran-arisan', [GiliranArisanController::class, 'store']);
     Route::post('/giliran-arisan/reset', [GiliranArisanController::class, 'resetPeriode']);
     Route::post('/giliran-arisan/generate', [GiliranArisanController::class, 'generatePeriode']);
-    Route::get('/arisan/rekap', [ArisanTransactionController::class, 'index']);
+    Route::get('/arisan', [ArisanTransactionController::class, 'index']);
     Route::post('/arisan/toggle', [ArisanTransactionController::class, 'toggle']);
+    Route::post('/arisan/generate', [ArisanTransactionController::class, 'generateJadwal']);
+    Route::get('/kas/warga', [KasWargaController::class, 'index']);
+    Route::post('/kas/warga/toggle', [KasWargaController::class, 'toggleStatus']);
+    Route::post('/kas/warga/generate', [KasWargaController::class, 'generateKasOtomatis']);
 });

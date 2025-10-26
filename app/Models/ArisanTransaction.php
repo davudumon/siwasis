@@ -17,6 +17,7 @@ class ArisanTransaction extends Model
         'jumlah',
         'periode',
         'tanggal',
+        'status'
     ];
 
     public function admin()

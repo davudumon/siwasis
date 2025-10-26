@@ -6,14 +6,9 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::disableForeignKeyConstraints();
-
-        Schema::create('arisan_transactions', function (Blueprint $table) {
+        Schema::create('kas_warga', function (Blueprint $table) {
             $table->id();
             $table->foreignId('admin_id')
                 ->constrained('admin')
@@ -21,21 +16,17 @@ return new class extends Migration
             $table->foreignId('warga_id')
                 ->constrained('warga')
                 ->onDelete('cascade');
+            $table->string('periode'); // contoh: "Januari 2025"   
             $table->decimal('jumlah');
-            $table->string('periode');
             $table->date('tanggal');
             $table->enum('status', ['belum_bayar', 'sudah_bayar'])->default('belum_bayar');
             $table->timestamps();
         });
-
-        Schema::enableForeignKeyConstraints();
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::dropIfExists('arisan_transactions');
+        Schema::dropIfExists('kas_warga');
     }
 };
+

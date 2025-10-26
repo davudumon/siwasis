@@ -22,6 +22,7 @@ return new class extends Migration
             $table->text('alamat');
             $table->enum('role', ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara', 'warga'])->default('warga');
             $table->date('tanggal_lahir');
+            $table->string('rt');
             $table->timestamps();
         });
 

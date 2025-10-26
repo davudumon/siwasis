@@ -24,6 +24,7 @@ class WargaController extends Controller
             'alamat'        => 'required|string',
             'role'          => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga',
             'tanggal_lahir' => 'required|date',
+            'rt'            => 'required|string'
         ]);
 
         $warga = Warga::create([
@@ -32,6 +33,7 @@ class WargaController extends Controller
             'alamat'        => $request->alamat,
             'role'          => $request->role ?? 'warga',
             'tanggal_lahir' => $request->tanggal_lahir,
+            'rt'            => $request->rt
         ]);
 
         $existing_periode = GiliranArisan::select('periode')->distinct()->get();
