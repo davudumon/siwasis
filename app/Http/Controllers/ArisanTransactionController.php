@@ -18,7 +18,7 @@ class ArisanTransactionController extends Controller
         $request->validate([
             'periode' => 'required|string',
             'tanggal' => 'nullable|array',
-            'tanggal.*' => 'date', 
+            'tanggal.*' => 'date',
         ]);
 
         $query = ArisanTransaction::with('warga')
@@ -52,18 +52,18 @@ class ArisanTransactionController extends Controller
         $warga = Warga::all();
         $start = Carbon::parse($request->start_date);
         $end = Carbon::parse($request->end_date);
-        
-        // 🔥 Interval ditetapkan 14 hari (2 minggu)
+
+        // Interval ditetapkan 14 hari (2 minggu)
         $interval = 14;
-        
+
         $tanggalList = [];
-        $transactions = []; 
+        $transactions = [];
 
         // 1. Generate daftar tanggal otomatis
         for ($tanggal = $start->copy(); $tanggal->lte($end); $tanggal->addDays($interval)) {
             $tanggalList[] = $tanggal->toDateString();
         }
-        
+
         $now = Carbon::now();
         $adminId = $request->user()->id;
 
@@ -82,18 +82,18 @@ class ArisanTransactionController extends Controller
                 ];
             }
         }
-        
+
         // 3. Gunakan UPSERT untuk insert massal
         $count = 0;
         if (!empty($transactions)) {
             ArisanTransaction::upsert(
                 $transactions,
-                ['warga_id', 'periode', 'tanggal'], 
+                ['warga_id', 'periode', 'tanggal'],
                 ['admin_id', 'jumlah', 'status', 'updated_at']
             );
             $count = count($transactions);
         }
-        
+
         return response()->json([
             'message' => "Jadwal arisan berhasil dibuat/diperbarui dengan interval 2 minggu untuk {$count} entri.",
             'tanggal' => $tanggalList

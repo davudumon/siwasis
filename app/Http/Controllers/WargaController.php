@@ -12,7 +12,7 @@ class WargaController extends Controller
     public function index()
     {
         $warga = Warga::with('admin')->latest()->get();
-
+        
         return response()->json($warga, 201);
     }
 

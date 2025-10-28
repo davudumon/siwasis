@@ -10,6 +10,8 @@ use App\Http\Controllers\GiliranArisanController;
 use App\Http\Controllers\KasWargaController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\SampahTransactionController;
+use App\Http\Controllers\JimpitanTransactionController;
 
 Route::post('/register', [AuthController::class, 'register']);
 
@@ -22,6 +24,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('articles', ArticleController::class);
     Route::apiResource('yt_links', YoutubeLinkController::class);
     Route::apiResource('document', DocumentController::class);
+    Route::apiResource('sampah', SampahTransactionController::class);
+    Route::apiResource('jimpitan', JimpitanTransactionController::class);
     Route::get('/giliran-arisan', [GiliranArisanController::class, 'index']);
     Route::get('/giliran-arisan/belum-dapat', [GiliranArisanController::class, 'getBelumDapat']);
     Route::post('/giliran-arisan', [GiliranArisanController::class, 'store']);
