@@ -1,0 +1,19 @@
+services:
+    laravel:
+        container_name: siwasis
+        image: davudumon/siwasis:latest
+        ports:
+            - 8003:80
+        env_file:
+            - ./.env
+        environment:
+            PHP_UPLOAD_MAX_FILESIZE: 10M
+            PHP_POST_MAX_SIZE: 10M
+        volumes:
+            - ./storage:/app/storage
+        networks:
+            - db-system_mysql_db
+
+networks:
+    db-system_mysql_db:
+        external: true

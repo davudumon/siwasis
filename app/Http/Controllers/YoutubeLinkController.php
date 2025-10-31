@@ -14,7 +14,7 @@ class YoutubeLinkController extends Controller
     {
         $yt_links = YoutubeLink::with('admin')->latest()->get();
 
-        return response()->json($yt_links, 201);
+        return response()->json($yt_links, 200);
     }
 
     /**
@@ -45,7 +45,7 @@ class YoutubeLinkController extends Controller
         return response()->json([
             'message' => 'Link Youtube berhasil ditambahkan',
             'data'    => $yt_links,
-        ], 201);
+        ], 200);
     }
 
     /**
