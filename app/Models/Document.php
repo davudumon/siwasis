@@ -18,6 +18,6 @@ class Document extends Model
     ];
 
     public function admin(){
-        return $this->belongsTo('admin');
+        return $this->belongsTo(Admin::class);
     }
 }

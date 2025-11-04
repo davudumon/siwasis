@@ -14,7 +14,7 @@ class KasWarga extends Model
     protected $fillable = [
         'admin_id',
         'warga_id',
-        'periode',
+        'periode_id',
         'jumlah',
         'tanggal',
         'status',
@@ -34,6 +34,10 @@ class KasWarga extends Model
     public function warga()
     {
         return $this->belongsTo(Warga::class);
+    }
+
+    public function periode(){
+        return $this->belongsTo(Periode::class);
     }
 
     /**

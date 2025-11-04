@@ -3,27 +3,38 @@
 namespace App\Http\Controllers;
 
 use App\Models\KasRt;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Http\Request;
-use Carbon\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class KasRtController extends Controller
 {
-    // Ambil semua transaksi kas RT
+    /**
+     * GET /api/kas-rt
+     * Ambil semua transaksi kas RT (pemasukan & pengeluaran)
+     */
     public function index(Request $request)
     {
         $query = KasRt::query();
 
-        // Filter berdasarkan tanggal jika dikirim
-        if ($request->has('tanggal')) {
+        // 🔹 Filter berdasarkan tahun
+        if ($request->filled('year')) {
+            $query->whereYear('tanggal', $request->year);
+        }
+
+        // 🔹 Filter berdasarkan tanggal (range atau tunggal)
+        if ($request->filled('from') && $request->filled('to')) {
+            $query->whereBetween('tanggal', [$request->from, $request->to]);
+        } elseif ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // Filter tipe: pemasukan / pengeluaran
-        if ($request->has('tipe')) {
+        // 🔹 Filter tipe pemasukan/pengeluaran
+        if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
 
-        $kas = $query->orderBy('tanggal', 'desc')->get();
+        $kas = $query->orderByDesc('tanggal')->get();
 
         return response()->json([
             'message' => 'Data kas RT berhasil diambil',
@@ -31,14 +42,17 @@ class KasRtController extends Controller
         ]);
     }
 
-    // Tambah transaksi kas RT baru
+    /**
+     * POST /api/kas-rt
+     * Tambah transaksi kas RT baru
+     */
     public function store(Request $request)
     {
         $request->validate([
             'tipe' => 'required|in:pemasukan,pengeluaran',
             'jumlah' => 'required|numeric|min:0',
-            'keterangan' => 'required|string',
-            'tanggal' => 'nullable|date'
+            'keterangan' => 'required|string|max:255',
+            'tanggal' => 'required|date',
         ]);
 
         $kas = KasRt::create([
@@ -55,7 +69,10 @@ class KasRtController extends Controller
         ], 201);
     }
 
-    // Update transaksi kas RT
+    /**
+     * PUT /api/kas-rt/{id}
+     * Update transaksi kas RT
+     */
     public function update(Request $request, $id)
     {
         $kas = KasRt::findOrFail($id);
@@ -63,8 +80,8 @@ class KasRtController extends Controller
         $request->validate([
             'tipe' => 'sometimes|in:pemasukan,pengeluaran',
             'jumlah' => 'sometimes|numeric|min:0',
-            'keterangan' => 'sometimes|string',
-            'tanggal' => 'sometimes|date'
+            'keterangan' => 'sometimes|string|max:255',
+            'tanggal' => 'sometimes|date',
         ]);
 
         $kas->update([
@@ -80,7 +97,10 @@ class KasRtController extends Controller
         ]);
     }
 
-    // Hapus transaksi kas RT
+    /**
+     * DELETE /api/kas-rt/{id}
+     * Hapus transaksi kas RT
+     */
     public function destroy($id)
     {
         $kas = KasRt::findOrFail($id);
@@ -89,20 +109,83 @@ class KasRtController extends Controller
         return response()->json(['message' => 'Transaksi kas RT berhasil dihapus']);
     }
 
-    // Ringkasan total kas RT
-    public function summary()
+    /**
+     * GET /api/kas-rt/summary
+     * Ringkasan total kas RT (pemasukan, pengeluaran, saldo)
+     */
+    public function summary(Request $request)
     {
-        $totalPemasukan = KasRt::where('tipe', 'pemasukan')->sum('jumlah');
-        $totalPengeluaran = KasRt::where('tipe', 'pengeluaran')->sum('jumlah');
+        $query = KasRt::query();
+
+        // Filter berdasarkan tahun jika dikirim
+        if ($request->filled('year')) {
+            $query->whereYear('tanggal', $request->year);
+        }
+
+        $totalPemasukan = (clone $query)->where('tipe', 'pemasukan')->sum('jumlah');
+        $totalPengeluaran = (clone $query)->where('tipe', 'pengeluaran')->sum('jumlah');
         $saldo = $totalPemasukan - $totalPengeluaran;
 
         return response()->json([
-            'message' => 'Ringkasan kas RT',
+            'message' => 'Ringkasan kas RT berhasil diambil',
             'data' => [
                 'total_pemasukan' => $totalPemasukan,
                 'total_pengeluaran' => $totalPengeluaran,
                 'saldo' => $saldo,
             ]
         ]);
+    }
+
+    public function export(Request $request)
+    {
+        $kas = $this->filteredQuery($request)
+            ->orderBy('tanggal')
+            ->get(['tanggal', 'tipe', 'jumlah', 'keterangan']);
+
+        $filename = 'kas_rt_' . now()->format('Ymd_His') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+        ];
+
+        $callback = function () use ($kas) {
+            $handle = fopen('php://output', 'w');
+            // Header CSV
+            fputcsv($handle, ['Tanggal', 'Tipe', 'Jumlah', 'Keterangan']);
+
+            foreach ($kas as $row) {
+                fputcsv($handle, [
+                    $row->tanggal,
+                    ucfirst($row->tipe),
+                    number_format($row->jumlah, 0, ',', '.'),
+                    $row->keterangan
+                ]);
+            }
+
+            fclose($handle);
+        };
+
+        return new StreamedResponse($callback, 200, $headers);
+    }
+    private function filteredQuery(Request $request)
+    {
+        $query = KasRt::query();
+
+        if ($request->filled('year')) {
+            $query->whereYear('tanggal', $request->year);
+        }
+
+        if ($request->filled('from') && $request->filled('to')) {
+            $query->whereBetween('tanggal', [$request->from, $request->to]);
+        } elseif ($request->filled('tanggal')) {
+            $query->whereDate('tanggal', $request->tanggal);
+        }
+
+        if ($request->filled('tipe')) {
+            $query->where('tipe', $request->tipe);
+        }
+
+        return $query;
     }
 }

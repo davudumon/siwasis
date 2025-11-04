@@ -17,7 +17,8 @@ class Warga extends Model
         'alamat',
         'role',
         'tanggal_lahir',
-        'rt'
+        'rt',
+        'tipe_warga'
     ];
 
     public function admin(){
@@ -25,6 +26,26 @@ class Warga extends Model
     }
 
     public function giliran_arisan(){
+        return $this->hasMany(GiliranArisan::class);
+    }
+
+    public function periode()
+    {
+        return $this->belongsToMany(Periode::class, 'periode_warga', 'warga_id', 'periode_id')
+                    ->using(PeriodeWarga::class) // Menggunakan Model PeriodeWarga
+                    ->withPivot('status_arisan') // Mengambil kolom status_arisan dari pivot
+                    ->withTimestamps();
+    }
+
+    public function kasTransaction(){
+        return $this->hasMany(KasWarga::class);
+    }
+    
+    public function arisanTransaction(){
+        return $this->hasMany(ArisanTransaction::class);
+    }
+
+    public function giliranArisan(){
         return $this->hasMany(GiliranArisan::class);
     }
 }

@@ -16,12 +16,11 @@ return new class extends Migration
         Schema::create('giliran_arisan', function (Blueprint $table) {
             $table->id();
 
-            // Relasi ke admin & warga
             $table->foreignId('admin_id')->constrained('admin')->onDelete('cascade');
             $table->foreignId('warga_id')->constrained('warga')->onDelete('cascade');
 
-            // Informasi arisan
-            $table->string('periode'); // contoh: "2025-10"
+            $table->foreignId('periode_id')->constrained('periode')->onDelete('cascade');
+
             $table->enum('status', ['belum_dapat', 'sudah_dapat'])->default('belum_dapat');
             $table->date('tanggal_dapat')->nullable();
 

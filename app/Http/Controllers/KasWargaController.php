@@ -3,153 +3,226 @@
 namespace App\Http\Controllers;
 
 use App\Models\KasWarga;
+use App\Models\Periode;
 use App\Models\Warga;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Carbon\CarbonPeriod;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class KasWargaController extends Controller
 {
     /**
      * GET: Ambil rekap kas warga (bisa difilter berdasarkan periode & tanggal multiple)
      */
-    public function index(Request $request)
+    public function rekap(Request $request)
     {
         $request->validate([
-            'periode' => 'nullable|string',
-            'tanggal' => 'nullable|array',
-            'tanggal.*' => 'date',
+            'periode_id' => 'nullable|exists:periode,id',
+            'year' => 'nullable|digits:4',
+            'page' => 'nullable|integer|min:1',
+            'q' => 'nullable|string',
+            'rt' => 'nullable|string',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+            'min' => 'nullable|numeric|min:0',
+            'max' => 'nullable|numeric|min:0',
         ]);
 
-        $query = KasWarga::with('warga');
-
-        if ($request->filled('periode')) {
-            $query->where('periode', $request->periode);
+        // 🔹 Ambil tanggal dari periode atau tahun
+        if ($request->filled('periode_id')) {
+            $periode = Periode::find($request->periode_id);
+            $startDate = Carbon::parse($periode->start_date);
+            $endDate = Carbon::parse($periode->end_date);
+            $periodeNama = $periode->nama;
+            $periodeId = $periode->id;
+        } elseif ($request->filled('year')) {
+            $year = $request->year;
+            $startDate = Carbon::create($year, 1, 1);
+            $endDate = Carbon::create($year, 12, 31);
+            $periodeNama = "Tahun $year";
+            $periodeId = null;
+        } else {
+            return response()->json(['message' => 'Harus mengirim periode_id atau year'], 422);
         }
 
-        // Menggunakan whereIn untuk filter multiple choice tanggal
-        if ($request->filled('tanggal')) {
-            $query->whereIn('tanggal', $request->tanggal);
+        
+        $dates = collect();
+        $period = CarbonPeriod::create($startDate, '14 days', $endDate);
+        foreach ($period as $date) {
+            $dates->push($date->toDateString());
         }
 
-        $data = $query->get();
+        // 🔹 Ambil data warga + status bayar dari kas_warga
+        $query = DB::table('warga')
+            ->leftJoin('kas_warga', function ($join) use ($periodeId, $dates) {
+                $join->on('warga.id', '=', 'kas_warga.warga_id')
+                    ->whereIn('kas_warga.tanggal', $dates);
+                if ($periodeId) {
+                    $join->where('kas_warga.periode_id', $periodeId);
+                }
+            })
+            ->select(
+                'warga.id',
+                'warga.nama',
+                'warga.rt',
+                'kas_warga.tanggal',
+                'kas_warga.status',
+                'kas_warga.jumlah'
+            )
+            ->when($request->q, fn($q) => $q->where('warga.nama', 'like', "%{$request->q}%"))
+            ->when($request->rt, fn($q) => $q->where('warga.rt', $request->rt))
+            ->when($request->min, fn($q) => $q->where('kas_warga.jumlah', '>=', $request->min))
+            ->when($request->max, fn($q) => $q->where('kas_warga.jumlah', '<=', $request->max))
+            ->when($request->from && $request->to, fn($q) => $q->whereBetween('kas_warga.tanggal', [$request->from, $request->to]))
+            ->orderBy('warga.rt')
+            ->orderBy('warga.nama');
+
+        // Pagination opsional
+        $data = $request->filled('page')
+            ? $query->paginate(10)
+            : $query->get();
 
         return response()->json([
-            'message' => 'Data kas berhasil diambil',
-            'data' => $data
+            'message' => 'Rekap kas warga berhasil diambil',
+            'periode' => $periodeNama,
+            'dates' => $dates,
+            'filters' => [
+                'periode_id' => $periodeId,
+                'year' => $request->year,
+                'rt' => $request->rt,
+                'q' => $request->q,
+                'from' => $request->from,
+                'to' => $request->to,
+                'min' => $request->min,
+                'max' => $request->max,
+            ],
+            'data' => $data,
         ]);
     }
 
     /**
-     * POST: Generate jadwal kas otomatis (menggunakan upsert untuk performa)
+     * POST /api/kas/rekap/save
+     * Simpan hasil centang status bayar
      */
-    // ... dalam class KasWargaController
-
-    /**
-     * POST: Generate jadwal kas otomatis (dengan interval 14 hari)
-     */
-    public function generateKasOtomatis(Request $request)
+    public function rekapSave(Request $request)
     {
         $request->validate([
-            'periode' => 'required|string',
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after_or_equal:start_date',
-            'jumlah' => 'required|numeric|min:0',
+            'periode_id' => 'required|exists:periode,id',
+            'updates' => 'required|array',
+            'updates.*.warga_id' => 'required|exists:warga,id',
+            'updates.*.tanggal' => 'required|date',
+            'updates.*.status' => 'required|in:sudah_bayar,belum_bayar',
         ]);
 
-        $start = Carbon::parse($request->start_date);
-        $end = Carbon::parse($request->end_date);
-
-        // 🔥 PERUBAHAN UTAMA: Interval ditetapkan 14 hari (2 minggu)
-        $interval = 14;
-
-        $tanggal_list = [];
-        $transactions = [];
-        $current = $start->copy();
-
-        // 1. Generate daftar tanggal
-        while ($current->lte($end)) {
-            $tanggal_list[] = $current->toDateString();
-            // Menggunakan $interval = 14
-            $current->addDays($interval);
-        }
-
-        $warga_list = Warga::all();
-        $now = Carbon::now();
-        // Menggunakan ID admin yang sedang login
+        $now = now();
         $adminId = $request->user()->id;
 
-        // 2. Kumpulkan data ke dalam array
-        foreach ($warga_list as $warga) {
-            foreach ($tanggal_list as $tanggal) {
-                $transactions[] = [
-                    'admin_id' => $adminId,
-                    'warga_id' => $warga->id,
-                    'periode'  => $request->periode,
-                    'tanggal'  => $tanggal,
-                    'jumlah'   => $request->jumlah,
-                    'status'   => 'belum_bayar',
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-            }
-        }
+        // Bentuk array untuk upsert
+        $data = array_map(function ($item) use ($request, $adminId, $now) {
+            return [
+                'warga_id' => $item['warga_id'],
+                'periode_id' => $request->periode_id,
+                'tanggal' => $item['tanggal'],
+                'status' => $item['status'],
+                'admin_id' => $adminId,
+                'updated_at' => $now,
+                'created_at' => $now,
+            ];
+        }, $request->updates);
 
-        // 3. Gunakan UPSERT untuk insert massal sekaligus mencegah duplikasi
-        $count = 0;
-        if (!empty($transactions)) {
-            KasWarga::upsert( // Pastikan menggunakan namespace model yang benar
-                $transactions,
-                ['warga_id', 'periode', 'tanggal'],
-                ['admin_id', 'jumlah', 'status', 'updated_at']
-            );
-            $count = count($transactions);
-        }
+        // 🔥 Upsert massal (insert/update sekaligus)
+        KasWarga::upsert(
+            $data,
+            ['warga_id', 'periode_id', 'tanggal'], // unique keys
+            ['status', 'admin_id', 'updated_at']   // columns to update if duplicate
+        );
 
         return response()->json([
-            'message' => "Jadwal Kas berhasil dibuat/diperbarui dengan interval 2 minggu untuk {$count} entri.",
-            'tanggal_dibuat' => $tanggal_list,
-        ], 201);
+            'message' => 'Rekap kas berhasil disimpan (batch upsert)',
+            'count' => count($data),
+        ]);
     }
 
-    // ... fungsi lainnya
-
-    /**
-     * PUT: Toggle status bayar kas (mengganti updateStatus)
-     */
-    public function toggleStatus(Request $request)
+    public function export(Request $request)
     {
         $request->validate([
-            'warga_id' => 'required|exists:warga,id',
-            'periode' => 'required|string',
-            'tanggal' => 'required|date',
+            'periode_id' => 'nullable|exists:periode,id',
+            'year' => 'nullable|digits:4',
         ]);
 
-        $kas = KasWarga::where([
-            'warga_id' => $request->warga_id,
-            'periode' => $request->periode,
-            'tanggal' => $request->tanggal,
-        ])->first();
+        // 🔹 Gunakan query yang sama dengan rekap
+        $data = $this->getFilteredKas($request)->orderBy('warga.rt')->orderBy('warga.nama')->get();
 
-        if ($kas) {
-            if ($kas->status === 'sudah_bayar') {
-                $kas->update(['status' => 'belum_bayar']);
-                $status = 'dibatalkan (belum bayar)';
-            } else {
-                $kas->update(['status' => 'sudah_bayar']);
-                $status = 'ditandai sudah bayar';
+        $filename = 'rekap_kas_warga_' . now()->format('Ymd_His') . '.csv';
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+        ];
+
+        $callback = function () use ($data) {
+            $handle = fopen('php://output', 'w');
+            fputs($handle, "\xEF\xBB\xBF"); // biar kebaca di Excel UTF-8
+
+            fputcsv($handle, ['Nama', 'RT', 'Tanggal', 'Status', 'Jumlah']);
+
+            foreach ($data as $row) {
+                fputcsv($handle, [
+                    $row->nama,
+                    $row->rt,
+                    $row->tanggal,
+                    ucfirst(str_replace('_', ' ', $row->status)),
+                    number_format($row->jumlah ?? 0, 0, ',', '.'),
+                ]);
             }
+
+            fclose($handle);
+        };
+
+        return new StreamedResponse($callback, 200, $headers);
+    }
+
+    /**
+     * 🔹 Helper internal untuk rekap/export agar query konsisten
+     */
+    private function getFilteredKas(Request $request)
+    {
+        $periodeId = $request->periode_id;
+        $dates = collect();
+
+        if ($periodeId) {
+            $periode = Periode::find($periodeId);
+            $startDate = Carbon::parse($periode->start_date);
+            $endDate = Carbon::parse($periode->end_date);
+        } elseif ($request->filled('year')) {
+            $year = $request->year;
+            $startDate = Carbon::create($year, 1, 1);
+            $endDate = Carbon::create($year, 12, 31);
         } else {
-            KasWarga::create([
-                'admin_id' => $request->user()->id,
-                'warga_id' => $request->warga_id,
-                'periode' => $request->periode,
-                'tanggal' => $request->tanggal,
-                'status' => 'sudah_bayar'
-            ]);
-            $status = 'ditandai sudah bayar (baru dibuat)';
+            $startDate = now()->startOfYear();
+            $endDate = now()->endOfYear();
         }
 
-        return response()->json(['message' => "Pembayaran berhasil $status"]);
+        $period = CarbonPeriod::create($startDate, '14 days', $endDate);
+        foreach ($period as $date) {
+            $dates->push($date->toDateString());
+        }
+
+        return DB::table('warga')
+            ->leftJoin('kas_warga', function ($join) use ($periodeId, $dates) {
+                $join->on('warga.id', '=', 'kas_warga.warga_id')
+                    ->whereIn('kas_warga.tanggal', $dates);
+                if ($periodeId) {
+                    $join->where('kas_warga.periode_id', $periodeId);
+                }
+            })
+            ->select(
+                'warga.nama',
+                'warga.rt',
+                'kas_warga.tanggal',
+                'kas_warga.status',
+                'kas_warga.jumlah'
+            );
     }
 }

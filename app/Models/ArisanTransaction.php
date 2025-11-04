@@ -15,7 +15,7 @@ class ArisanTransaction extends Model
         'admin_id',
         'warga_id',
         'jumlah',
-        'periode',
+        'periode_id',
         'tanggal',
         'status'
     ];
@@ -28,5 +28,9 @@ class ArisanTransaction extends Model
     public function warga()
     {
         return $this->belongsTo(Warga::class);
+    }
+
+    public function periode(){
+        return $this->belongsTo(Periode::class);
     }
 }

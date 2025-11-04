@@ -6,25 +6,22 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Model untuk tabel 'giliran_arisan'
- * Menyimpan riwayat putaran undian per warga dalam suatu periode.
- * Kolom: periode_id, warga_id, status, tanggal_dapat
+ * Model untuk tabel pivot 'periode_warga'
+ * Menyimpan partisipasi Warga dalam suatu Periode, termasuk status kemenangan Arisan.
+ * Kolom: periode_id, warga_id, status_arisan
  */
-class GiliranArisan extends Model
+class PeriodeWarga extends Model
 {
     use HasFactory;
 
-    protected $table = 'giliran_arisan';
+    // Nama tabel secara eksplisit (karena ini tabel pivot)
+    protected $table = 'periode_warga';
 
+    // Kolom yang dapat diisi massal
     protected $fillable = [
         'periode_id',
         'warga_id',
-        'status',
-        'tanggal_dapat',
-    ];
-
-    protected $casts = [
-        'tanggal_dapat' => 'date',
+        'status_arisan',
     ];
 
     /**

@@ -2,100 +2,122 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ArisanTransaction;
-use App\Models\GiliranArisan;
-use App\Models\JimpitanTransaction;
 use App\Models\KasRt;
 use App\Models\KasWarga;
-use App\Models\SampahTransaction;
-use Carbon\Carbon;
+use App\Models\GiliranArisan;
+use App\Models\Periode;
+use App\Models\Warga;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request)
+    public function summary(Request $request)
     {
-        // Ambil filter dari request
-        $tahun = $request->input('tahun');
-        $periode = $request->input('periode'); // contoh: "Januari 2025"
-        $start = $request->input('start');
-        $end = $request->input('end');
-
-        // Tentukan range tanggal
-        if ($start && $end) {
-            // kalau dikirim dua-duanya
-            $startDate = Carbon::parse($start)->startOfDay();
-            $endDate = Carbon::parse($end)->endOfDay();
-        } elseif ($start && !$end) {
-            // kalau hanya start → sampai sekarang
-            $startDate = Carbon::parse($start)->startOfDay();
-            $endDate = now()->endOfDay();
-        } elseif (!$start && $end) {
-            // kalau hanya end → dari awal tahun sampai end
-            $startDate = now()->startOfYear();
-            $endDate = Carbon::parse($end)->endOfDay();
-        } elseif ($periode) {
-            // kalau kirim periode (misal "Januari 2025")
-            try {
-                $periodeDate = Carbon::parse('1 ' . $periode);
-                $startDate = $periodeDate->copy()->startOfMonth();
-                $endDate = $periodeDate->copy()->endOfMonth();
-            } catch (\Exception $e) {
-                return response()->json(['error' => 'Format periode tidak valid. Gunakan format "Januari 2025".'], 422);
-            }
-        } elseif ($tahun) {
-            // kalau kirim tahun aja
-            $startDate = Carbon::create($tahun, 1, 1)->startOfDay();
-            $endDate = Carbon::create($tahun, 12, 31)->endOfDay();
-        } else {
-            // default: tahun ini
-            $startDate = now()->startOfYear();
-            $endDate = now()->endOfYear();
+        /**
+         *  Tentukan periode otomatis jika tidak dikirim
+         */
+        $periode = null;
+        if ($request->filled('periode')) {
+            $periode = Periode::where('id', $request->periode)->first();
+        }
+        if (!$periode) {
+            $periode = Periode::latest()->first();
         }
 
-        // Closure filter tanggal
-        $filterTanggal = function ($query) use ($startDate, $endDate) {
-            return $query->whereBetween('created_at', [$startDate, $endDate]);
-        };
+        $from = $request->from ?? ($periode?->tanggal_mulai ?? now()->startOfYear());
+        $to   = $request->to ?? ($periode?->tanggal_selesai ?? now()->endOfYear());
 
-        // Hitung semua total
-        $pemasukan_kas_rt = $filterTanggal(KasRt::where('tipe', 'pemasukan'))->sum('jumlah');
-        $pengeluaran_kas_rt = $filterTanggal(KasRt::where('tipe', 'pengeluaran'))->sum('jumlah');
+        /**
+         *  RINGKASAN KEUANGAN (KAS RT + ARISAN)
+         */
+        $totalPemasukanKas = KasRt::where('tipe', 'pemasukan')
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
 
-        $pemasukan_sampah = $filterTanggal(SampahTransaction::where('tipe', 'pemasukan'))->sum('jumlah');
-        $pengeluaran_sampah = $filterTanggal(SampahTransaction::where('tipe', 'pengeluaran'))->sum('jumlah');
+        $totalPengeluaranKas = KasRt::where('tipe', 'pengeluaran')
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
 
-        $pemasukan_jimpitan = $filterTanggal(JimpitanTransaction::where('tipe', 'pemasukan'))->sum('jumlah');
-        $pengeluaran_jimpitan = $filterTanggal(JimpitanTransaction::where('tipe', 'pengeluaran'))->sum('jumlah');
+        $totalSetoranArisan = KasWarga::where('status', 'sudah_bayar')
+            ->whereHas('warga', function ($q) {
+                $q->where('role', 'arisan');
+            })
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
 
-        $saldo_arisan = $filterTanggal(ArisanTransaction::query())->sum('jumlah');
-        $saldo_kas_warga = $filterTanggal(KasWarga::query())->sum('jumlah');
+        $totalPemasukan = $totalPemasukanKas + $totalSetoranArisan;
+        $saldo = $totalPemasukan - $totalPengeluaranKas;
 
-        // Hitung total keseluruhan
-        $total_pemasukan = $pemasukan_kas_rt + $pemasukan_sampah + $pemasukan_jimpitan + $saldo_arisan + $saldo_kas_warga;
-        $total_pengeluaran = $pengeluaran_kas_rt + $pengeluaran_sampah + $pengeluaran_jimpitan;
-        $total_saldo = $total_pemasukan - $total_pengeluaran;
-
-
-        $data_kas_warga = KasWarga::with('warga')
-            ->whereBetween('tanggal', [$startDate, $endDate])
+        /**
+         *  CHART PEMASUKAN VS PENGELUARAN PER BULAN
+         */
+        $chartKeuangan = KasRt::select(
+                DB::raw('DATE_FORMAT(tanggal, "%M %Y") as bulan'),
+                DB::raw('SUM(CASE WHEN tipe = "pemasukan" THEN jumlah ELSE 0 END) as total_pemasukan'),
+                DB::raw('SUM(CASE WHEN tipe = "pengeluaran" THEN jumlah ELSE 0 END) as total_pengeluaran')
+            )
+            ->whereBetween('tanggal', [$from, $to])
+            ->groupBy('bulan')
+            ->orderByRaw('MIN(tanggal)')
             ->get();
-        $data_giliran_arisan = GiliranArisan::with('warga')
-            ->whereBetween('tanggal', [$startDate, $endDate])
+
+        /**
+         *  REKAP KAS SEMUA WARGA
+         */
+        $rekapKasWarga = Warga::select(
+                'warga.id',
+                'warga.rt',
+                'warga.nama',
+                'warga.role',
+                DB::raw('COUNT(kas_warga.id) as jumlah_setoran'),
+                DB::raw('COALESCE(SUM(kas_warga.jumlah), 0) as total_setoran'),
+                DB::raw('GROUP_CONCAT(DATE_FORMAT(kas_warga.tanggal, "%Y-%m-%d") ORDER BY kas_warga.tanggal ASC SEPARATOR ", ") as tanggal_setoran')
+            )
+            ->leftJoin('kas_warga', function ($join) use ($from, $to) {
+                $join->on('kas_warga.warga_id', '=', 'warga.id')
+                    ->where('kas_warga.status', 'sudah_bayar')
+                    ->whereBetween('kas_warga.tanggal', [$from, $to]);
+            })
+            ->where('warga.role', '!=', 'admin')
+            ->groupBy('warga.id', 'warga.rt', 'warga.nama', 'warga.role')
+            ->orderBy('warga.rt')
+            ->orderBy('warga.nama')
             ->get();
 
+        /**
+         * 4️⃣ STATUS GILIRAN ARISAN (KHUSUS WARGA ARISAN)
+         */
+        $data = GiliranArisan::with('warga')->where('periode_id', $periode->id)->get(['warga_id', 'status']);
+
+        $statusArisan = $data->map(function ($item) {
+            return [
+                'nama' => $item->warga->nama ?? '-',
+                'status' => $item->status ?? '-',
+            ];
+        });
+
+        /**
+         * KEMBALIKAN SEMUA DATA
+         */
         return response()->json([
-            'filter' => [
-                'periode' => $periode,
-                'tahun' => $tahun ?? now()->year,
-                'start' => $startDate->toDateString(),
-                'end' => $endDate->toDateString(),
+            'message' => 'Ringkasan dashboard berhasil diambil',
+            'periode' => [
+                'from' => $from,
+                'to'   => $to,
+                'nama' => $periode?->nama,
             ],
-            'total_pemasukan' => $total_pemasukan,
-            'total_pengeluaran' => $total_pengeluaran,
-            'total_saldo' => $total_saldo,
-            'giliran_arisan' => $data_giliran_arisan,
-            'kas_warga' => $data_kas_warga
-        ]);
+            'data' => [
+                'kas_total' => [
+                    'pemasukan' => (int) $totalPemasukanKas,
+                    'pengeluaran' => (int) $totalPengeluaranKas,
+                    'pemasukan_arisan' => (int) $totalSetoranArisan,
+                    'saldo' => (int) $saldo,
+                ],
+                'chart_keuangan' => $chartKeuangan,
+                'rekap_kas_warga' => $rekapKasWarga,
+                'status_arisan' => $statusArisan,
+            ]
+        ], 200);
     }
 }
