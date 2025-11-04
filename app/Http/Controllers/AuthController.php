@@ -4,15 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\Admin;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     /**
      * POST /api/register
-     * (Opsional untuk setup awal)
+     * Mendaftarkan admin baru (opsional setup awal)
      */
     public function register(Request $request)
     {
@@ -28,13 +28,11 @@ class AuthController extends Controller
             'password' => Hash::make($fields['password']),
         ]);
 
-        // Opsional: Generate token setelah register
         $token = $admin->createToken('admin_token')->plainTextToken;
 
         return response()->json([
             'message' => 'Admin berhasil didaftarkan',
             'data' => $admin,
-            // Kembalikan token agar admin bisa langsung login
             'token' => $token,
             'token_type' => 'Bearer',
         ], 201);
@@ -42,7 +40,7 @@ class AuthController extends Controller
 
     /**
      * POST /api/login
-     * Autentikasi admin dan kembalikan Bearer Token di body response.
+     * Login dan kembalikan Bearer Token
      */
     public function login(Request $request)
     {
@@ -59,36 +57,29 @@ class AuthController extends Controller
             ]);
         }
 
-        // Hapus token lama dan buat token baru untuk sesi saat ini (opsional tapi disarankan)
+        // Hapus token lama dan buat token baru
         $admin->tokens()->delete();
-
-        // Buat token Sanctum
         $token = $admin->createToken('admin_token')->plainTextToken;
 
         return response()->json([
             'message' => 'Login berhasil',
             'admin' => $admin,
-            // Kembalikan token di body response
             'token' => $token,
             'token_type' => 'Bearer',
         ]);
-        // Hilangkan: ->withCookie($cookie);
     }
 
     /**
      * POST /api/logout
-     * Hapus semua token login.
+     * Menghapus token aktif (logout)
      */
     public function logout(Request $request)
     {
-        // Hapus token yang sedang digunakan (current token)
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
             'message' => 'Logout berhasil'
         ]);
-        // Hilangkan: $cookie = cookie()->forget('laravel_token');
-        // Hilangkan: ->withCookie($cookie);
     }
 
     /**
@@ -105,7 +96,7 @@ class AuthController extends Controller
 
     /**
      * PUT /api/profile
-     * Update name & email admin login
+     * Update name, email, dan foto profil admin login
      */
     public function updateProfile(Request $request)
     {
@@ -114,13 +105,36 @@ class AuthController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:admin,email,' . $admin->id,
+            'photo' => 'nullable|image|mimes:jpg,jpeg,png|max:2048', // max 2MB
         ]);
 
-        $admin->update($request->only(['name', 'email']));
+        // Update nama dan email
+        $admin->name = $request->name;
+        $admin->email = $request->email;
+
+        // Jika ada upload foto baru
+        if ($request->hasFile('photo')) {
+            // Hapus foto lama jika ada
+            if ($admin->photo && Storage::exists('public/profile/' . $admin->photo)) {
+                Storage::delete('public/profile/' . $admin->photo);
+            }
+
+            // Simpan foto baru
+            $path = $request->file('photo')->store('public/profile');
+            $filename = basename($path);
+            $admin->photo = $filename;
+        }
+
+        $admin->save();
 
         return response()->json([
             'message' => 'Profil berhasil diperbarui',
-            'data' => $admin
+            'data' => [
+                'id' => $admin->id,
+                'name' => $admin->name,
+                'email' => $admin->email,
+                'photo_url' => $admin->photo ? asset('storage/profile/' . $admin->photo) : null,
+            ]
         ]);
     }
 
@@ -145,11 +159,11 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
-        // Hapus semua token setelah password diubah untuk memaksa login ulang
+        // Hapus semua token agar harus login ulang
         $admin->tokens()->delete();
 
         return response()->json([
-            'message' => 'Password berhasil diubah. Anda harus login kembali.'
+            'message' => 'Password berhasil diubah. Silakan login kembali.'
         ]);
     }
 }
