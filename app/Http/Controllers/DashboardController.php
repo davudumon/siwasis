@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\KasRt;
+use App\Models\KasRT;
 use App\Models\KasWarga;
 use App\Models\GiliranArisan;
 use App\Models\Periode;
@@ -31,11 +31,11 @@ class DashboardController extends Controller
         /**
          *  RINGKASAN KEUANGAN (KAS RT + ARISAN)
          */
-        $totalPemasukanKas = KasRt::where('tipe', 'pemasukan')
+        $totalPemasukanKas = KasRT::where('tipe', 'pemasukan')
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
-        $totalPengeluaranKas = KasRt::where('tipe', 'pengeluaran')
+        $totalPengeluaranKas = KasRT::where('tipe', 'pengeluaran')
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
@@ -52,7 +52,7 @@ class DashboardController extends Controller
         /**
          *  CHART PEMASUKAN VS PENGELUARAN PER BULAN
          */
-        $chartKeuangan = KasRt::select(
+        $chartKeuangan = KasRT::select(
                 DB::raw('DATE_FORMAT(tanggal, "%M %Y") as bulan'),
                 DB::raw('SUM(CASE WHEN tipe = "pemasukan" THEN jumlah ELSE 0 END) as total_pemasukan'),
                 DB::raw('SUM(CASE WHEN tipe = "pengeluaran" THEN jumlah ELSE 0 END) as total_pengeluaran')

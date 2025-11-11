@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SampahTransaction;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SampahTransactionController extends Controller
@@ -12,49 +13,58 @@ class SampahTransactionController extends Controller
     // F. Sampah (SampahController) - GET /api/sampah/laporan
     public function index(Request $request)
     {
-        // Ambil parameter filter dan paginasi
-        $perPage = $request->input('page', 10); // Default 10 item per halaman
+        // 🔹 Ambil parameter filter dan paginasi
+        $perPage = $request->input('per_page', 10); // Default 10 item per halaman
         $query = SampahTransaction::with('admin');
 
-        // Filter berdasarkan 'tanggal'
+        // 🔹 Filter berdasarkan 'tanggal'
         if ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // Filter berdasarkan 'tipe' (pemasukan/pengeluaran)
+        // 🔹 Filter berdasarkan 'tipe' (pemasukan/pengeluaran)
         if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
 
-        // Filter berdasarkan 'year' (tahun)
+        // 🔹 Filter berdasarkan 'year' (tahun)
         if ($request->filled('year')) {
             $query->whereYear('tanggal', $request->year);
         }
 
-        // Filter berdasarkan 'q' (query/pencarian di kolom keterangan)
+        // 🔹 Filter berdasarkan 'q' (pencarian di kolom title)
         if ($request->filled('q')) {
             $searchTerm = '%' . $request->q . '%';
             $query->where(function ($q) use ($searchTerm) {
                 $q->where('title', 'like', $searchTerm);
-                // Tambahkan kolom lain yang ingin dicari jika diperlukan
             });
         }
 
-        // Paginasi (menggantikan ->get()) dan urutkan
-        $paginatedTransactions = $query->orderBy('tanggal', 'asc')->paginate($perPage);
+        // 🔹 Ambil data terurut dan dipaginasi
+        $transactions = $query->orderBy('tanggal', 'asc')->paginate($perPage);
 
-        $allTransactions = SampahTransaction::orderBy('tanggal', 'asc')->get();
-        $saldo = 0;
-        foreach ($allTransactions as $trx) {
-            $saldo += $trx->tipe === 'pemasukan' ? $trx->jumlah : -$trx->jumlah;
-        }
+        // 🔹 Hitung saldo akhir total (tanpa pagination)
+        $saldo = SampahTransaction::sum(DB::raw("CASE WHEN tipe = 'pemasukan' THEN jumlah ELSE -jumlah END"));
 
         return response()->json([
             'message' => 'Data transaksi sampah berhasil diambil',
-            'saldo_akhir_total' => $saldo, // Saldo akhir dari semua data
-            'data' => $paginatedTransactions // Data transaksi yang sudah dipaginasi
+            'saldo_akhir_total' => $saldo,
+            'pagination' => [
+                'current_page' => $transactions->currentPage(),
+                'per_page' => $transactions->perPage(),
+                'total' => $transactions->total(),
+                'last_page' => $transactions->lastPage(),
+            ],
+            'filters' => [
+                'tanggal' => $request->tanggal ?? null,
+                'year' => $request->year ?? null,
+                'tipe' => $request->tipe ?? null,
+                'q' => $request->q ?? null,
+            ],
+            'data' => $transactions->items(),
         ]);
     }
+
 
     // Tambah transaksi baru
     public function store(Request $request)
@@ -110,65 +120,64 @@ class SampahTransactionController extends Controller
     }
 
     public function export(Request $request)
-{
-    // Ambil SEMUA data (tanpa paginasi, tapi dengan filter jika ada)
-    $query = SampahTransaction::with('admin');
-
-    if ($request->filled('tanggal')) {
-        $query->whereDate('tanggal', $request->tanggal);
-    }
-    if ($request->filled('tipe')) {
-        $query->where('tipe', $request->tipe);
-    }
-    if ($request->filled('year')) {
-        $query->whereYear('tanggal', $request->year);
-    }
-    // Filter lain jika diperlukan
-    
-    $transaksi = $query->orderBy('tanggal', 'asc')->get();
-    
-    // Tentukan nama file CSV
-    $fileName = 'laporan_sampah_' . now()->format('Ymd_His') . '.csv';
-
-    $headers = [
-        'Content-Type' => 'text/csv',
-        'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
-    ];
-
-    // Fungsi untuk membuat stream CSV
-    $callback = function() use ($transaksi)
     {
-        $file = fopen('php://output', 'w');
-        
-        // Header Kolom CSV
-        fputcsv($file, ['ID', 'Admin', 'Tipe', 'Jumlah', 'Keterangan', 'Tanggal', 'Dibuat Pada']);
+        // Ambil SEMUA data (tanpa paginasi, tapi dengan filter jika ada)
+        $query = SampahTransaction::with('admin');
 
-        // Data Saldo Akhir (opsional)
-        $saldo = 0;
-        
-        // Isi Data Transaksi
-        foreach ($transaksi as $trx) {
-            $saldo += $trx->tipe === 'pemasukan' ? $trx->jumlah : -$trx->jumlah;
-            
-            fputcsv($file, [
-                $trx->id,
-                $trx->admin->name ?? 'N/A', // Asumsi relasi admin ada
-                $trx->tipe,
-                $trx->jumlah,
-                $trx->keterangan,
-                $trx->tanggal,
-                $trx->created_at,
-                // Kolom saldo akhir per baris TIDAK disertakan karena akan salah
-                // jika file dibuka di Excel dan diurutkan. Lebih baik hitung di Excel/frontend.
-            ]);
+        if ($request->filled('tanggal')) {
+            $query->whereDate('tanggal', $request->tanggal);
         }
-        
-        // Baris Saldo Akhir Total
-        fputcsv($file, ['', '', 'SALDO AKHIR TOTAL', $saldo, '', '', '']);
+        if ($request->filled('tipe')) {
+            $query->where('tipe', $request->tipe);
+        }
+        if ($request->filled('year')) {
+            $query->whereYear('tanggal', $request->year);
+        }
+        // Filter lain jika diperlukan
 
-        fclose($file);
-    };
+        $transaksi = $query->orderBy('tanggal', 'asc')->get();
 
-    return new StreamedResponse($callback, 200, $headers);
-}
+        // Tentukan nama file CSV
+        $fileName = 'laporan_sampah_' . now()->format('Ymd_His') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
+        ];
+
+        // Fungsi untuk membuat stream CSV
+        $callback = function () use ($transaksi) {
+            $file = fopen('php://output', 'w');
+
+            // Header Kolom CSV
+            fputcsv($file, ['ID', 'Admin', 'Tipe', 'Jumlah', 'Keterangan', 'Tanggal', 'Dibuat Pada']);
+
+            // Data Saldo Akhir (opsional)
+            $saldo = 0;
+
+            // Isi Data Transaksi
+            foreach ($transaksi as $trx) {
+                $saldo += $trx->tipe === 'pemasukan' ? $trx->jumlah : -$trx->jumlah;
+
+                fputcsv($file, [
+                    $trx->id,
+                    $trx->admin->name ?? 'N/A', // Asumsi relasi admin ada
+                    $trx->tipe,
+                    $trx->jumlah,
+                    $trx->keterangan,
+                    $trx->tanggal,
+                    $trx->created_at,
+                    // Kolom saldo akhir per baris TIDAK disertakan karena akan salah
+                    // jika file dibuka di Excel dan diurutkan. Lebih baik hitung di Excel/frontend.
+                ]);
+            }
+
+            // Baris Saldo Akhir Total
+            fputcsv($file, ['', '', 'SALDO AKHIR TOTAL', $saldo, '', '', '']);
+
+            fclose($file);
+        };
+
+        return new StreamedResponse($callback, 200, $headers);
+    }
 }

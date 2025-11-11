@@ -22,12 +22,14 @@ class KasWargaController extends Controller
             'periode_id' => 'nullable|exists:periode,id',
             'year' => 'nullable|digits:4',
             'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:1',
             'q' => 'nullable|string',
             'rt' => 'nullable|string',
             'from' => 'nullable|date',
             'to' => 'nullable|date',
             'min' => 'nullable|numeric|min:0',
             'max' => 'nullable|numeric|min:0',
+            'no_paginate' => 'nullable|boolean',
         ]);
 
         // 🔹 Ambil tanggal dari periode atau tahun
@@ -47,14 +49,14 @@ class KasWargaController extends Controller
             return response()->json(['message' => 'Harus mengirim periode_id atau year'], 422);
         }
 
-        
+        // 🔹 Generate daftar tanggal (setiap 14 hari)
         $dates = collect();
         $period = CarbonPeriod::create($startDate, '14 days', $endDate);
         foreach ($period as $date) {
             $dates->push($date->toDateString());
         }
 
-        // 🔹 Ambil data warga + status bayar dari kas_warga
+        // 🔹 Query utama
         $query = DB::table('warga')
             ->leftJoin('kas_warga', function ($join) use ($periodeId, $dates) {
                 $join->on('warga.id', '=', 'kas_warga.warga_id')
@@ -79,10 +81,33 @@ class KasWargaController extends Controller
             ->orderBy('warga.rt')
             ->orderBy('warga.nama');
 
-        // Pagination opsional
-        $data = $request->filled('page')
-            ? $query->paginate(10)
-            : $query->get();
+        // 🔹 Tentukan jumlah data per halaman
+        $perPage = $request->get('per_page', 10);
+
+        // 🔹 Jalankan query (bisa tanpa pagination jika diminta)
+        if ($request->boolean('no_paginate')) {
+            $data = $query->get();
+
+            return response()->json([
+                'message' => 'Rekap kas warga berhasil diambil',
+                'periode' => $periodeNama,
+                'dates' => $dates,
+                'filters' => [
+                    'periode_id' => $periodeId,
+                    'year' => $request->year,
+                    'rt' => $request->rt,
+                    'q' => $request->q,
+                    'from' => $request->from,
+                    'to' => $request->to,
+                    'min' => $request->min,
+                    'max' => $request->max,
+                ],
+                'data' => $data,
+            ]);
+        }
+
+        // 🔹 Dengan pagination
+        $paginated = $query->paginate($perPage);
 
         return response()->json([
             'message' => 'Rekap kas warga berhasil diambil',
@@ -98,9 +123,16 @@ class KasWargaController extends Controller
                 'min' => $request->min,
                 'max' => $request->max,
             ],
-            'data' => $data,
+            'pagination' => [
+                'current_page' => $paginated->currentPage(),
+                'per_page' => $paginated->perPage(),
+                'total' => $paginated->total(),
+                'last_page' => $paginated->lastPage(),
+            ],
+            'data' => $paginated->items(),
         ]);
     }
+
 
     /**
      * POST /api/kas/rekap/save

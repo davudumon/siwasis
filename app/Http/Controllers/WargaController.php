@@ -12,10 +12,10 @@ class WargaController extends Controller
 {
     public function index(Request $request)
     {
-        // 🔹 Ambil periode terbaru
+        // Ambil periode terbaru
         $periodeTerbaru = Periode::latest('id')->first();
 
-        // 🔹 Query dasar
+        // Query dasar
         $query = Warga::with(['admin', 'giliranArisan'])
             ->withSum(['kasTransaction as setoran_kas' => function ($q) {
                 $q->where('status', 'sudah_bayar');
@@ -27,22 +27,22 @@ class WargaController extends Controller
                 $q->where('status', 'sudah_bayar')->with('periode');
             }]);
 
-        // 🔹 Filter RT
+        // Filter RT
         if ($request->filled('rt') && $request->rt !== 'semua') {
             $query->where('rt', $request->rt);
         }
 
-        // 🔹 Filter role
+        // Filter role
         if ($request->filled('role') && $request->role !== 'semua') {
             $query->where('role', $request->role);
         }
 
-        // 🔹 Filter nama (pencarian)
+        // Filter nama (pencarian)
         if ($request->filled('q')) {
             $query->where('nama', 'like', '%' . $request->q . '%');
         }
 
-        // 🔹 Filter total setoran kas
+        // Filter total setoran kas
         if ($request->filled('kas_min')) {
             $query->having('setoran_kas', '>=', $request->kas_min);
         }
@@ -50,7 +50,7 @@ class WargaController extends Controller
             $query->having('setoran_kas', '<=', $request->kas_max);
         }
 
-        // 🔹 Filter arisan
+        // Filter arisan
         if (
             $request->filled('arisan_min') ||
             $request->filled('arisan_max') ||
@@ -75,16 +75,20 @@ class WargaController extends Controller
             });
         }
 
-        // 🔹 Ambil hasil
-        $warga = $query->latest()->get();
+        // Tentukan jumlah item per halaman (default 10)
+        $perPage = $request->get('per_page', 10);
 
-        // 🔹 Hitung total setoran arisan per warga
-        $warga->transform(function ($item) {
+        // Ambil hasil dengan pagination
+        $warga = $query->latest()->paginate($perPage);
+
+        // Transformasi hasil tiap item
+        $warga->getCollection()->transform(function ($item) {
             $item->setoran_arisan = $item->arisanTransaction->sum('jumlah') ?? 0;
             $item->setoran_kas = $item->setoran_kas ?? 0;
             return $item;
         });
 
+        // Response JSON lengkap dengan data pagination
         return response()->json([
             'message' => 'Data warga berhasil diambil',
             'filter' => [
@@ -97,7 +101,13 @@ class WargaController extends Controller
                 'arisan_max' => $request->arisan_max ?? null,
                 'arisan_status' => $request->arisan_status ?? 'semua',
             ],
-            'data' => $warga,
+            'pagination' => [
+                'current_page' => $warga->currentPage(),
+                'per_page' => $warga->perPage(),
+                'total' => $warga->total(),
+                'last_page' => $warga->lastPage(),
+            ],
+            'data' => $warga->items(),
         ], 200);
     }
 

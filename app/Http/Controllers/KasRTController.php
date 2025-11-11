@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\KasRt;
+use App\Models\KasRT;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -14,33 +14,51 @@ class KasRtController extends Controller
      * Ambil semua transaksi kas RT (pemasukan & pengeluaran)
      */
     public function index(Request $request)
-    {
-        $query = KasRt::query();
+{
+    $query = KasRT::query();
 
-        // 🔹 Filter berdasarkan tahun
-        if ($request->filled('year')) {
-            $query->whereYear('tanggal', $request->year);
-        }
-
-        // 🔹 Filter berdasarkan tanggal (range atau tunggal)
-        if ($request->filled('from') && $request->filled('to')) {
-            $query->whereBetween('tanggal', [$request->from, $request->to]);
-        } elseif ($request->filled('tanggal')) {
-            $query->whereDate('tanggal', $request->tanggal);
-        }
-
-        // 🔹 Filter tipe pemasukan/pengeluaran
-        if ($request->filled('tipe')) {
-            $query->where('tipe', $request->tipe);
-        }
-
-        $kas = $query->orderByDesc('tanggal')->get();
-
-        return response()->json([
-            'message' => 'Data kas RT berhasil diambil',
-            'data' => $kas
-        ]);
+    // 🔹 Filter berdasarkan tahun
+    if ($request->filled('year')) {
+        $query->whereYear('tanggal', $request->year);
     }
+
+    // 🔹 Filter berdasarkan tanggal (range atau tunggal)
+    if ($request->filled('from') && $request->filled('to')) {
+        $query->whereBetween('tanggal', [$request->from, $request->to]);
+    } elseif ($request->filled('tanggal')) {
+        $query->whereDate('tanggal', $request->tanggal);
+    }
+
+    // 🔹 Filter tipe pemasukan/pengeluaran
+    if ($request->filled('tipe')) {
+        $query->where('tipe', $request->tipe);
+    }
+
+    // 🔹 Tentukan jumlah data per halaman (default 10)
+    $perPage = $request->get('per_page', 10);
+
+    // 🔹 Ambil data dengan pagination
+    $kas = $query->orderByDesc('tanggal')->paginate($perPage);
+
+    return response()->json([
+        'message' => 'Data kas RT berhasil diambil',
+        'filter' => [
+            'year' => $request->year ?? null,
+            'from' => $request->from ?? null,
+            'to' => $request->to ?? null,
+            'tanggal' => $request->tanggal ?? null,
+            'tipe' => $request->tipe ?? null,
+        ],
+        'pagination' => [
+            'current_page' => $kas->currentPage(),
+            'per_page' => $kas->perPage(),
+            'total' => $kas->total(),
+            'last_page' => $kas->lastPage(),
+        ],
+        'data' => $kas->items(),
+    ]);
+}
+
 
     /**
      * POST /api/kas-rt

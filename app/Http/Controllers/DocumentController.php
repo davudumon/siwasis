@@ -15,37 +15,48 @@ class DocumentController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Document::with('admin')->latest();
+        $perPage = $request->input('per_page', 10);
+        $query = Document::with('admin')->orderByDesc('uploaded_at');
 
-        // 🔍 Filter pencarian (berdasarkan judul / deskripsi)
+        // 🔍 Filter pencarian (judul / deskripsi)
         if ($request->filled('q')) {
-            $query->where(function ($q) use ($request) {
-                $q->where('title', 'like', "%{$request->q}%")
-                  ->orWhere('description', 'like', "%{$request->q}%");
+            $search = "%{$request->q}%";
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', $search)
+                    ->orWhere('description', 'like', $search);
             });
         }
 
-        // 📅 Filter tanggal upload
+        // 📅 Filter tanggal upload (rentang)
         if ($request->filled('from') && $request->filled('to')) {
             $query->whereBetween('uploaded_at', [$request->from, $request->to]);
         }
 
         // 🔢 Pagination opsional
         $documents = $request->filled('page')
-            ? $query->paginate(10)
+            ? $query->paginate($perPage)
             : $query->get();
 
+        // 🧭 Response JSON dengan metadata lengkap
         return response()->json([
             'message' => 'Daftar dokumen berhasil diambil',
             'filters' => [
-                'q' => $request->q,
-                'from' => $request->from,
-                'to' => $request->to,
-                'page' => $request->page,
+                'q' => $request->q ?? null,
+                'from' => $request->from ?? null,
+                'to' => $request->to ?? null,
+                'page' => $request->page ?? null,
+                'per_page' => $perPage,
             ],
-            'data' => $documents,
+            'pagination' => $request->filled('page') ? [
+                'current_page' => $documents->currentPage(),
+                'per_page' => $documents->perPage(),
+                'total' => $documents->total(),
+                'last_page' => $documents->lastPage(),
+            ] : null,
+            'data' => $request->filled('page') ? $documents->items() : $documents,
         ]);
     }
+
 
     /**
      * POST /api/documents

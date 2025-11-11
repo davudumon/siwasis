@@ -15,43 +15,59 @@ class JimpitanTransactionController extends Controller
      */
     public function index(Request $request)
     {
+        // 🔹 Ambil parameter paginasi
         $perPage = $request->input('per_page', 10);
+
+        // 🔹 Query dasar
         $query = JimpitanTransaction::with('admin')->orderBy('tanggal', 'desc');
 
-        // Filter berdasarkan 'tipe' (pemasukan/pengeluaran)
+        // 🔹 Filter berdasarkan 'tipe' (pemasukan/pengeluaran)
         if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
 
-        // Filter berdasarkan 'tanggal'
+        // 🔹 Filter berdasarkan 'tanggal'
         if ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // Filter berdasarkan 'year' (tahun)
+        // 🔹 Filter berdasarkan 'year' (tahun)
         if ($request->filled('year')) {
             $query->whereYear('tanggal', $request->year);
         }
-        
-        // Filter berdasarkan 'q' (query/pencarian di kolom keterangan)
+
+        // 🔹 Filter berdasarkan 'q' (pencarian di kolom keterangan)
         if ($request->filled('q')) {
             $searchTerm = '%' . $request->q . '%';
             $query->where('keterangan', 'like', $searchTerm);
         }
 
-        // Ambil data dengan paginasi
-        $paginatedTransactions = $query->paginate($perPage);
+        // 🔹 Ambil data dengan paginasi
+        $transactions = $query->paginate($perPage);
 
-        // Hitung saldo akhir total dari SELURUH data (tanpa paginasi)
-        // Ini lebih akurat untuk ditampilkan sebagai saldo total terkini.
-        $totalSaldo = $this->calculateTotalBalance();
+        // 🔹 Hitung saldo akhir total dari seluruh data
+        $totalSaldo = $this->calculateTotalBalance() ?? 0;
 
+        // 🔹 Format respons JSON dengan pagination dan filter
         return response()->json([
             'message' => 'Data transaksi jimpitan berhasil diambil',
             'saldo_akhir_total' => $totalSaldo,
-            'data' => $paginatedTransactions
+            'pagination' => [
+                'current_page' => $transactions->currentPage(),
+                'per_page' => $transactions->perPage(),
+                'total' => $transactions->total(),
+                'last_page' => $transactions->lastPage(),
+            ],
+            'filters' => [
+                'tanggal' => $request->tanggal ?? null,
+                'year' => $request->year ?? null,
+                'tipe' => $request->tipe ?? null,
+                'q' => $request->q ?? null,
+            ],
+            'data' => $transactions->items(),
         ]);
     }
+
 
     /**
      * Menghitung saldo akhir total dari semua transaksi.
@@ -110,7 +126,7 @@ class JimpitanTransactionController extends Controller
     public function update(Request $request, $id)
     {
         $data = JimpitanTransaction::findOrFail($id);
-        
+
         $request->validate([
             'jumlah' => 'sometimes|numeric|min:0',
             'tipe' => 'sometimes|in:pemasukan,pengeluaran',
@@ -153,13 +169,21 @@ class JimpitanTransactionController extends Controller
         // Siapkan Query (Sama seperti index, tetapi tanpa paginasi)
         $query = JimpitanTransaction::with('admin');
 
-        if ($request->filled('tipe')) { $query->where('tipe', $request->tipe); }
-        if ($request->filled('tanggal')) { $query->whereDate('tanggal', $request->tanggal); }
-        if ($request->filled('year')) { $query->whereYear('tanggal', $request->year); }
-        if ($request->filled('q')) { $query->where('keterangan', 'like', '%' . $request->q . '%'); }
-        
+        if ($request->filled('tipe')) {
+            $query->where('tipe', $request->tipe);
+        }
+        if ($request->filled('tanggal')) {
+            $query->whereDate('tanggal', $request->tanggal);
+        }
+        if ($request->filled('year')) {
+            $query->whereYear('tanggal', $request->year);
+        }
+        if ($request->filled('q')) {
+            $query->where('keterangan', 'like', '%' . $request->q . '%');
+        }
+
         $transaksi = $query->orderBy('tanggal', 'asc')->get();
-        
+
         $fileName = 'laporan_jimpitan_' . now()->format('Ymd_His') . '.csv';
 
         $headers = [
@@ -168,23 +192,22 @@ class JimpitanTransactionController extends Controller
         ];
 
         // Buat StreamedResponse untuk efisiensi memori
-        $callback = function() use ($transaksi)
-        {
+        $callback = function () use ($transaksi) {
             $file = fopen('php://output', 'w');
-            
+
             // Header Kolom CSV
             fputcsv($file, ['ID', 'Admin', 'Tipe', 'Jumlah', 'Keterangan', 'Tanggal Transaksi', 'Waktu Input']);
 
             // Data Saldo Akhir (opsional, dihitung di akhir file)
             $saldo = 0;
-            
+
             // Isi Data Transaksi
             foreach ($transaksi as $trx) {
                 $saldo += $trx->tipe === 'pemasukan' ? $trx->jumlah : -$trx->jumlah;
-                
+
                 fputcsv($file, [
                     $trx->id,
-                    $trx->admin->name ?? 'N/A', 
+                    $trx->admin->name ?? 'N/A',
                     $trx->tipe,
                     $trx->jumlah,
                     $trx->keterangan,
@@ -192,7 +215,7 @@ class JimpitanTransactionController extends Controller
                     $trx->created_at,
                 ]);
             }
-            
+
             // Baris Saldo Akhir Total
             fputcsv($file, ['', '', 'SALDO AKHIR TOTAL', $saldo, '', '', '']);
 
