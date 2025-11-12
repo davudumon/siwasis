@@ -72,6 +72,9 @@ Route::prefix('youtube')->controller(YoutubeLinkController::class)->group(functi
     Route::get('{id}', 'show');
 });
 
+Route::get('/articles', [ArticleController::class, 'index']);   
+Route::get('/articles/{id}', [ArticleController::class, 'show']); 
+
 // DASHBOARD
 Route::prefix('dashboard')->controller(DashboardController::class)->group(function () {
     Route::get('summary', 'summary');
@@ -96,6 +99,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admins', [SettingsController::class, 'index']);
     Route::post('/admins', [SettingsController::class, 'store']);
     Route::delete('/admins/{id}', [SettingsController::class, 'destroy']);
+
+    // ARTIKEL
+    Route::post('/articles', [ArticleController::class, 'store']);     // Buat artikel
+    Route::put('/articles/{id}', [ArticleController::class, 'update']); // Update artikel
+    Route::delete('/articles/{id}', [ArticleController::class, 'destroy']); // Hapus artikel
 
     // JIMPITAN (Hanya sisa POST/PUT/DELETE/SHOW Detail)
     Route::prefix('jimpitan')->controller(JimpitanTransactionController::class)->group(function () {

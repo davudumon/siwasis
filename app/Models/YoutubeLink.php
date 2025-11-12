@@ -14,6 +14,7 @@ class YoutubeLink extends Model
     protected $fillable = [
         'title',
         'url',
+        'image',
         'admin_id', // kalau nanti ada relasi ke admin
     ];
 

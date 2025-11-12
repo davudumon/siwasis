@@ -116,40 +116,48 @@ class WargaController extends Controller
     public function storeKas(Request $request)
     {
         $validated = $request->validate([
-            'nama' => 'required|string|max:255',
-            'alamat' => 'required|string',
-            'tanggal_lahir' => 'required|date',
-            'rt' => 'required|string',
+            'nama'           => 'required|string|max:255',
+            'alamat'         => 'required|string',
+            'tanggal_lahir'  => 'required|date',
+            'rt'             => 'required|string',
+            'role'           => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga', // 👈 Tambahan
         ]);
 
         $warga = Warga::create([
-            'admin_id' => $request->user()->id,
-            'nama' => $validated['nama'],
-            'alamat' => $validated['alamat'],
-            'tanggal_lahir' => $validated['tanggal_lahir'],
-            'rt' => $validated['rt'],
-            'tipe_warga' => 'kas',
+            'admin_id'       => $request->user()->id,
+            'nama'           => $validated['nama'],
+            'alamat'         => $validated['alamat'],
+            'tanggal_lahir'  => $validated['tanggal_lahir'],
+            'rt'             => $validated['rt'],
+            'role'           => $validated['role'] ?? 'warga', // 👈 Default ke 'warga' jika kosong
+            'tipe_warga'     => 'kas',
         ]);
 
-        return response()->json($warga, 201);
+        return response()->json([
+            'message' => 'Data warga kas berhasil ditambahkan',
+            'data' => $warga
+        ], 201);
     }
+
 
     public function storeArisan(Request $request)
     {
         $validated = $request->validate([
-            'nama' => 'required|string|max:255',
-            'alamat' => 'required|string',
-            'tanggal_lahir' => 'required|date',
-            'rt' => 'required|string',
+            'nama'           => 'required|string|max:255',
+            'alamat'         => 'required|string',
+            'tanggal_lahir'  => 'required|date',
+            'rt'             => 'required|string',
+            'role'           => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga', // 👈 Tambahan
         ]);
 
         $warga = Warga::create([
-            'admin_id' => $request->user()->id,
-            'nama' => $validated['nama'],
-            'alamat' => $validated['alamat'],
-            'tanggal_lahir' => $validated['tanggal_lahir'],
-            'rt' => $validated['rt'],
-            'tipe_warga' => 'arisan',
+            'admin_id'       => $request->user()->id,
+            'nama'           => $validated['nama'],
+            'alamat'         => $validated['alamat'],
+            'tanggal_lahir'  => $validated['tanggal_lahir'],
+            'rt'             => $validated['rt'],
+            'role'           => $validated['role'] ?? 'warga', // 👈 Default ke 'warga'
+            'tipe_warga'     => 'arisan',
         ]);
 
         $periodes = Periode::all();
@@ -165,7 +173,10 @@ class WargaController extends Controller
             ]);
         }
 
-        return response()->json($warga, 201);
+        return response()->json([
+            'message' => 'Data warga arisan berhasil ditambahkan',
+            'data' => $warga
+        ], 201);
     }
 
     public function update(Request $request, $id)
@@ -177,6 +188,7 @@ class WargaController extends Controller
             'alamat'        => 'sometimes|required|string',
             'role'          => 'sometimes|in:ketua,wakil_ketua,sekretaris,bendahara,warga',
             'tanggal_lahir' => 'sometimes|date',
+            'rt'            => 'sometimes|required|string',
         ]);
 
         $warga->update([
@@ -184,10 +196,15 @@ class WargaController extends Controller
             'alamat'        => $request->alamat ?? $warga->alamat,
             'role'          => $request->role ?? $warga->role,
             'tanggal_lahir' => $request->tanggal_lahir ?? $warga->tanggal_lahir,
+            'rt'            => $request->rt ?? $warga->rt,
         ]);
 
-        return response()->json($warga);
+        return response()->json([
+            'message' => 'Data warga berhasil diperbarui',
+            'data' => $warga
+        ]);
     }
+
 
     public function destroy($id)
     {

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\YoutubeLink;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class YoutubeLinkController extends Controller
 {
@@ -18,11 +19,6 @@ class YoutubeLinkController extends Controller
     }
 
     /**
-     * Show the form for creating a new resource.
-     */
-    public function create() {}
-
-    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -34,18 +30,26 @@ class YoutubeLinkController extends Controller
                 'url',
                 'regex:/^(https?\:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/'
             ],
+            'image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
-        $yt_links = YoutubeLink::create([
-            'admin_id' => $request->user()->id, // admin login
+        // Upload image jika ada
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('youtube', 'public');
+        }
+
+        $yt_link = YoutubeLink::create([
+            'admin_id' => $request->user()->id,
             'title'    => $request->input('title'),
             'url'      => $request->input('url'),
+            'image'    => $imagePath,
         ]);
 
         return response()->json([
             'message' => 'Link Youtube berhasil ditambahkan',
-            'data'    => $yt_links,
-        ], 200);
+            'data'    => $yt_link,
+        ], 201);
     }
 
     /**
@@ -53,18 +57,10 @@ class YoutubeLinkController extends Controller
      */
     public function show(string $id)
     {
-        $yt_links = YoutubeLink::findOrFail($id);
+        $yt_link = YoutubeLink::findOrFail($id);
         return response()->json([
-            'data' => $yt_links
-        ], 201);
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
+            'data' => $yt_link
+        ], 200);
     }
 
     /**
@@ -72,7 +68,7 @@ class YoutubeLinkController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        $yt_links = YoutubeLink::findOrFail($id);
+        $yt_link = YoutubeLink::findOrFail($id);
 
         $request->validate([
             'title' => 'required|string|max:225',
@@ -81,14 +77,27 @@ class YoutubeLinkController extends Controller
                 'url',
                 'regex:/^(https?\:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/'
             ],
+            'image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
-        $yt_links->update($request->all());
+        // Jika ada file baru, hapus lama dan simpan baru
+        if ($request->hasFile('image')) {
+            if ($yt_link->image && Storage::disk('public')->exists($yt_link->image)) {
+                Storage::disk('public')->delete($yt_link->image);
+            }
+            $yt_link->image = $request->file('image')->store('youtube', 'public');
+        }
+
+        $yt_link->update([
+            'title' => $request->input('title'),
+            'url'   => $request->input('url'),
+            'image' => $yt_link->image,
+        ]);
 
         return response()->json([
             'message' => 'Link Youtube berhasil diupdate',
-            'data' => $yt_links
-        ], 201);
+            'data' => $yt_link
+        ], 200);
     }
 
     /**
@@ -96,12 +105,17 @@ class YoutubeLinkController extends Controller
      */
     public function destroy(string $id)
     {
-        $yt_links = YoutubeLink::findOrFail($id);
+        $yt_link = YoutubeLink::findOrFail($id);
 
-        $yt_links->delete();
+        // Hapus gambar dari storage jika ada
+        if ($yt_link->image && Storage::disk('public')->exists($yt_link->image)) {
+            Storage::disk('public')->delete($yt_link->image);
+        }
+
+        $yt_link->delete();
 
         return response()->json([
             'message' => 'Link Youtube berhasil dihapus'
-        ]);
+        ], 200);
     }
 }
