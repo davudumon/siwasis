@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\KasRT;
 use App\Models\KasWarga;
-use App\Models\GiliranArisan;
 use App\Models\Periode;
+use App\Models\PeriodeWarga;
 use App\Models\Warga;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,11 +15,11 @@ class DashboardController extends Controller
     public function summary(Request $request)
     {
         /**
-         *  Tentukan periode otomatis jika tidak dikirim
+         * 1️⃣ Tentukan periode otomatis jika tidak dikirim
          */
         $periode = null;
         if ($request->filled('periode')) {
-            $periode = Periode::where('id', $request->periode)->first();
+            $periode = Periode::find($request->periode);
         }
         if (!$periode) {
             $periode = Periode::latest()->first();
@@ -29,7 +29,7 @@ class DashboardController extends Controller
         $to   = $request->to ?? ($periode?->tanggal_selesai ?? now()->endOfYear());
 
         /**
-         *  RINGKASAN KEUANGAN (KAS RT + ARISAN)
+         * 2️⃣ RINGKASAN KEUANGAN (KAS RT + ARISAN)
          */
         $totalPemasukanKas = KasRT::where('tipe', 'pemasukan')
             ->whereBetween('tanggal', [$from, $to])
@@ -40,9 +40,7 @@ class DashboardController extends Controller
             ->sum('jumlah');
 
         $totalSetoranArisan = KasWarga::where('status', 'sudah_bayar')
-            ->whereHas('warga', function ($q) {
-                $q->where('role', 'arisan');
-            })
+            ->whereHas('warga', fn($q) => $q->where('role', 'arisan'))
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
@@ -50,30 +48,30 @@ class DashboardController extends Controller
         $saldo = $totalPemasukan - $totalPengeluaranKas;
 
         /**
-         *  CHART PEMASUKAN VS PENGELUARAN PER BULAN
+         * 3️⃣ CHART PEMASUKAN VS PENGELUARAN PER BULAN
          */
         $chartKeuangan = KasRT::select(
-                DB::raw('DATE_FORMAT(tanggal, "%M %Y") as bulan'),
-                DB::raw('SUM(CASE WHEN tipe = "pemasukan" THEN jumlah ELSE 0 END) as total_pemasukan'),
-                DB::raw('SUM(CASE WHEN tipe = "pengeluaran" THEN jumlah ELSE 0 END) as total_pengeluaran')
-            )
+            DB::raw('DATE_FORMAT(tanggal, "%M %Y") as bulan'),
+            DB::raw('SUM(CASE WHEN tipe = "pemasukan" THEN jumlah ELSE 0 END) as total_pemasukan'),
+            DB::raw('SUM(CASE WHEN tipe = "pengeluaran" THEN jumlah ELSE 0 END) as total_pengeluaran')
+        )
             ->whereBetween('tanggal', [$from, $to])
             ->groupBy('bulan')
             ->orderByRaw('MIN(tanggal)')
             ->get();
 
         /**
-         *  REKAP KAS SEMUA WARGA
+         * 4️⃣ REKAP KAS SEMUA WARGA
          */
         $rekapKasWarga = Warga::select(
-                'warga.id',
-                'warga.rt',
-                'warga.nama',
-                'warga.role',
-                DB::raw('COUNT(kas_warga.id) as jumlah_setoran'),
-                DB::raw('COALESCE(SUM(kas_warga.jumlah), 0) as total_setoran'),
-                DB::raw('GROUP_CONCAT(DATE_FORMAT(kas_warga.tanggal, "%Y-%m-%d") ORDER BY kas_warga.tanggal ASC SEPARATOR ", ") as tanggal_setoran')
-            )
+            'warga.id',
+            'warga.rt',
+            'warga.nama',
+            'warga.role',
+            DB::raw('COUNT(kas_warga.id) as jumlah_setoran'),
+            DB::raw('COALESCE(SUM(kas_warga.jumlah), 0) as total_setoran'),
+            DB::raw('GROUP_CONCAT(DATE_FORMAT(kas_warga.tanggal, "%Y-%m-%d") ORDER BY kas_warga.tanggal ASC SEPARATOR ", ") as tanggal_setoran')
+        )
             ->leftJoin('kas_warga', function ($join) use ($from, $to) {
                 $join->on('kas_warga.warga_id', '=', 'warga.id')
                     ->where('kas_warga.status', 'sudah_bayar')
@@ -86,25 +84,23 @@ class DashboardController extends Controller
             ->get();
 
         /**
-         * 4️⃣ STATUS GILIRAN ARISAN (KHUSUS WARGA ARISAN)
+         * 5️⃣ STATUS ARISAN (PAKAI periode_warga, BUKAN giliran_arisan)
          */
         if ($periode) {
-            $data = GiliranArisan::with('warga')
+            $data = PeriodeWarga::with('warga')
                 ->where('periode_id', $periode->id)
                 ->get(['warga_id', 'status']);
 
-            $statusArisan = $data->map(function ($item) {
-                return [
-                    'nama' => $item->warga->nama ?? '-',
-                    'status' => $item->status ?? '-',
-                ];
-            });
+            $statusArisan = $data->map(fn($item) => [
+                'nama' => $item->warga->nama ?? '-',
+                'status' => $item->status ?? 'belum_dapat',
+            ]);
         } else {
             $statusArisan = collect([]);
         }
 
         /**
-         * KEMBALIKAN SEMUA DATA
+         * 6️⃣ KEMBALIKAN SEMUA DATA
          */
         return response()->json([
             'message' => 'Ringkasan dashboard berhasil diambil',

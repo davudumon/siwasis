@@ -7,34 +7,25 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Run the migrations.
+     * Jalankan migrasi (hapus tabel giliran_arisan).
      */
     public function up(): void
     {
-        Schema::disableForeignKeyConstraints();
-
-        Schema::create('giliran_arisan', function (Blueprint $table) {
-            $table->id();
-
-            $table->foreignId('admin_id')->constrained('admin')->onDelete('cascade');
-            $table->foreignId('warga_id')->constrained('warga')->onDelete('cascade');
-
-            $table->foreignId('periode_id')->constrained('periode')->onDelete('cascade');
-
-            $table->enum('status', ['belum_dapat', 'sudah_dapat'])->default('belum_dapat');
-            $table->date('tanggal_dapat')->nullable();
-
-            $table->timestamps();
-        });
-
-        Schema::enableForeignKeyConstraints();
+        Schema::dropIfExists('giliran_arisan');
     }
 
     /**
-     * Reverse the migrations.
+     * Kembalikan migrasi (buat ulang tabel giliran_arisan jika dibatalkan).
      */
     public function down(): void
     {
-        Schema::dropIfExists('giliran_arisan');
+        Schema::create('giliran_arisan', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('warga_id')->constrained('warga')->onDelete('cascade');
+            $table->foreignId('periode_id')->constrained('periode')->onDelete('cascade');
+            $table->foreignId('admin_id')->nullable()->constrained('admin')->onDelete('set null');
+            $table->enum('status', ['belum_dapat', 'sudah_dapat'])->default('belum_dapat');
+            $table->timestamps();
+        });
     }
 };

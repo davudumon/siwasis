@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\GiliranArisan;
 use App\Models\PeriodeWarga;
-use App\Models\Warga;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 

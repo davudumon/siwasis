@@ -25,10 +25,6 @@ class Warga extends Model
         return $this->belongsTo(Admin::class);
     }
 
-    public function giliran_arisan(){
-        return $this->hasMany(GiliranArisan::class);
-    }
-
     public function periode()
     {
         return $this->belongsToMany(Periode::class, 'periode_warga', 'warga_id', 'periode_id')
@@ -43,9 +39,5 @@ class Warga extends Model
     
     public function arisanTransaction(){
         return $this->hasMany(ArisanTransaction::class);
-    }
-
-    public function giliranArisan(){
-        return $this->hasMany(GiliranArisan::class);
     }
 }
