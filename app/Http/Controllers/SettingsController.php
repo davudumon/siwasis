@@ -30,7 +30,7 @@ class SettingsController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|unique:admins,email',
+            'email' => 'required|string|email|unique:admin,email',
             'password' => 'required|string|min:6|confirmed'
         ]);
 

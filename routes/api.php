@@ -36,6 +36,7 @@ Route::prefix('warga')->group(function () {
     Route::get('/', [WargaController::class, 'index']);
     Route::get('/{id}', [WargaController::class, 'show']);
 });
+Route::get('/pengurus', [WargaController::class, 'getPengurus']);
 
 Route::prefix('jimpitan')->controller(JimpitanTransactionController::class)->group(function () {
     Route::get('laporan', 'index');
@@ -72,10 +73,10 @@ Route::prefix('youtube')->controller(YoutubeLinkController::class)->group(functi
     Route::get('{id}', 'show');
 });
 
-Route::get('/articles', [ArticleController::class, 'index']);   
-Route::get('/articles/{id}', [ArticleController::class, 'show']); 
-Route::get('/pengurus', [WargaController::class, 'getPengurus']);
-    
+Route::get('/articles', [ArticleController::class, 'index']);
+Route::get('/articles/{id}', [ArticleController::class, 'show']);
+
+
 // DASHBOARD
 Route::prefix('dashboard')->controller(DashboardController::class)->group(function () {
     Route::get('summary', 'summary');
@@ -92,7 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::controller(AuthController::class)->group(function () {
         Route::delete('logout', 'logout');
         Route::get('profile', 'profile');
-        Route::put('profile', 'updateProfile');
+        Route::put('profile ', 'updateProfile');
         Route::post('password/change', 'changePassword');
     });
 
@@ -109,7 +110,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // JIMPITAN (Hanya sisa POST/PUT/DELETE/SHOW Detail)
     Route::prefix('jimpitan')->controller(JimpitanTransactionController::class)->group(function () {
         Route::post('create', 'store');
-        Route::get('{id}', 'show'); // Detail transaksi spesifik, mungkin sensitif
         Route::put('update/{id}', 'update');
         Route::delete('delete/{id}', 'destroy');
     });
@@ -117,7 +117,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // SAMPAH (Hanya sisa POST/PUT/DELETE/SHOW Detail)
     Route::prefix('sampah')->controller(SampahTransactionController::class)->group(function () {
         Route::post('create', 'store');
-        Route::get('{id}', 'show'); // Detail transaksi spesifik, mungkin sensitif
         Route::put('update/{id}', 'update');
         Route::delete('delete/{id}', 'destroy');
     });
@@ -149,15 +148,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // DOCUMENTS
     Route::prefix('documents')->controller(DocumentController::class)->group(function () {
         Route::post('/', 'store');
-        Route::put('{id}', 'update');
-        Route::delete('{id}', 'destroy');
+        Route::put('/{id}', 'update');
+        Route::delete('/{id}', 'destroy');
     });
 
     //  YOUTUBE
     Route::prefix('youtube')->controller(YoutubeLinkController::class)->group(function () {
         Route::post('/', 'store');
-        Route::post('{id}', 'update');
-        Route::delete('{id}', 'destroy');
+        Route::put('/{id}', 'update');
+        Route::delete('/{id}', 'destroy');
     });
 
     // WARGA
