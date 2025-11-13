@@ -74,7 +74,8 @@ Route::prefix('youtube')->controller(YoutubeLinkController::class)->group(functi
 
 Route::get('/articles', [ArticleController::class, 'index']);   
 Route::get('/articles/{id}', [ArticleController::class, 'show']); 
-
+Route::get('/pengurus', [WargaController::class, 'getPengurus']);
+    
 // DASHBOARD
 Route::prefix('dashboard')->controller(DashboardController::class)->group(function () {
     Route::get('summary', 'summary');
@@ -172,5 +173,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [PeriodeController::class, 'store']);
         Route::put('/{id}', [PeriodeController::class, 'update']);
         Route::delete('/{id}', [PeriodeController::class, 'destroy']);
+        Route::post('/tambah-warga', [PeriodeController::class, 'tambahWarga']);
     });
 });

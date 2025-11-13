@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Admin;
-use App\Models\GiliranArisan;
 use App\Models\Periode;
+use App\Models\PeriodeWarga;
 use App\Models\Warga;
 use Illuminate\Http\Request;
 
@@ -15,8 +15,8 @@ class WargaController extends Controller
         // Ambil periode terbaru
         $periodeTerbaru = Periode::latest('id')->first();
 
-        // Query dasar
-        $query = Warga::with(['admin', 'giliranArisan'])
+        // Query dasar warga
+        $query = Warga::with(['admin'])
             ->withSum(['kasTransaction as setoran_kas' => function ($q) {
                 $q->where('status', 'sudah_bayar');
             }], 'jumlah')
@@ -27,19 +27,27 @@ class WargaController extends Controller
                 $q->where('status', 'sudah_bayar')->with('periode');
             }]);
 
+        // 🔹 Join ke tabel periode_warga untuk ambil status_arisan
+        if ($periodeTerbaru) {
+            $query->leftJoin('periode_warga', function ($join) use ($periodeTerbaru) {
+                $join->on('periode_warga.warga_id', '=', 'warga.id')
+                    ->where('periode_warga.periode_id', '=', $periodeTerbaru->id);
+            })->addSelect('warga.*', 'periode_warga.status_arisan');
+        }
+
         // Filter RT
         if ($request->filled('rt') && $request->rt !== 'semua') {
-            $query->where('rt', $request->rt);
+            $query->where('warga.rt', $request->rt);
         }
 
         // Filter role
         if ($request->filled('role') && $request->role !== 'semua') {
-            $query->where('role', $request->role);
+            $query->where('warga.role', $request->role);
         }
 
         // Filter nama (pencarian)
         if ($request->filled('q')) {
-            $query->where('nama', 'like', '%' . $request->q . '%');
+            $query->where('warga.nama', 'like', '%' . $request->q . '%');
         }
 
         // Filter total setoran kas
@@ -50,36 +58,16 @@ class WargaController extends Controller
             $query->having('setoran_kas', '<=', $request->kas_max);
         }
 
-        // Filter arisan
-        if (
-            $request->filled('arisan_min') ||
-            $request->filled('arisan_max') ||
-            $request->filled('arisan_status')
-        ) {
-            $query->whereHas('arisanTransaction', function ($q) use ($request, $periodeTerbaru) {
-                if ($periodeTerbaru) {
-                    $q->where('periode_id', $periodeTerbaru->id);
-                }
-
-                if ($request->filled('arisan_status') && $request->arisan_status !== 'semua') {
-                    $q->where('status', $request->arisan_status);
-                }
-
-                if ($request->filled('arisan_min')) {
-                    $q->where('jumlah', '>=', $request->arisan_min);
-                }
-
-                if ($request->filled('arisan_max')) {
-                    $q->where('jumlah', '<=', $request->arisan_max);
-                }
-            });
+        // Filter status arisan
+        if ($request->filled('arisan_status') && $request->arisan_status !== 'semua') {
+            $query->where('periode_warga.status_arisan', $request->arisan_status);
         }
 
         // Tentukan jumlah item per halaman (default 10)
         $perPage = $request->get('per_page', 10);
 
         // Ambil hasil dengan pagination
-        $warga = $query->latest()->paginate($perPage);
+        $warga = $query->orderBy('warga.id', 'desc')->paginate($perPage);
 
         // Transformasi hasil tiap item
         $warga->getCollection()->transform(function ($item) {
@@ -88,17 +76,16 @@ class WargaController extends Controller
             return $item;
         });
 
-        // Response JSON lengkap dengan data pagination
+        // Response JSON lengkap
         return response()->json([
             'message' => 'Data warga berhasil diambil',
+            'periode_aktif' => $periodeTerbaru ? $periodeTerbaru->nama : null,
             'filter' => [
                 'rt' => $request->rt ?? 'semua',
                 'role' => $request->role ?? 'semua',
                 'q' => $request->q ?? null,
                 'kas_min' => $request->kas_min ?? null,
                 'kas_max' => $request->kas_max ?? null,
-                'arisan_min' => $request->arisan_min ?? null,
-                'arisan_max' => $request->arisan_max ?? null,
                 'arisan_status' => $request->arisan_status ?? 'semua',
             ],
             'pagination' => [
@@ -113,6 +100,7 @@ class WargaController extends Controller
 
 
 
+
     public function storeKas(Request $request)
     {
         $validated = $request->validate([
@@ -120,7 +108,7 @@ class WargaController extends Controller
             'alamat'         => 'required|string',
             'tanggal_lahir'  => 'required|date',
             'rt'             => 'required|string',
-            'role'           => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga', // 👈 Tambahan
+            'role'           => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga',
         ]);
 
         $warga = Warga::create([
@@ -129,17 +117,26 @@ class WargaController extends Controller
             'alamat'         => $validated['alamat'],
             'tanggal_lahir'  => $validated['tanggal_lahir'],
             'rt'             => $validated['rt'],
-            'role'           => $validated['role'] ?? 'warga', // 👈 Default ke 'warga' jika kosong
+            'role'           => $validated['role'] ?? 'warga',
             'tipe_warga'     => 'kas',
         ]);
+
+        // ✅ Daftarkan ke semua periode yang ada dengan status_arisan = 'tidak_ikut'
+        $periodes = Periode::all();
+        foreach ($periodes as $periode) {
+            \App\Models\PeriodeWarga::firstOrCreate([
+                'periode_id' => $periode->id,
+                'warga_id' => $warga->id,
+            ], [
+                'status_arisan' => 'tidak_ikut',
+            ]);
+        }
 
         return response()->json([
             'message' => 'Data warga kas berhasil ditambahkan',
             'data' => $warga
         ], 201);
     }
-
-
     public function storeArisan(Request $request)
     {
         $validated = $request->validate([
@@ -147,7 +144,7 @@ class WargaController extends Controller
             'alamat'         => 'required|string',
             'tanggal_lahir'  => 'required|date',
             'rt'             => 'required|string',
-            'role'           => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga', // 👈 Tambahan
+            'role'           => 'nullable|in:ketua,wakil_ketua,sekretaris,bendahara,warga',
         ]);
 
         $warga = Warga::create([
@@ -156,20 +153,18 @@ class WargaController extends Controller
             'alamat'         => $validated['alamat'],
             'tanggal_lahir'  => $validated['tanggal_lahir'],
             'rt'             => $validated['rt'],
-            'role'           => $validated['role'] ?? 'warga', // 👈 Default ke 'warga'
+            'role'           => $validated['role'] ?? 'warga',
             'tipe_warga'     => 'arisan',
         ]);
 
         $periodes = Periode::all();
 
         foreach ($periodes as $periode) {
-            GiliranArisan::firstOrCreate([
-                'warga_id' => $warga->id,
+            PeriodeWarga::firstOrCreate([
                 'periode_id' => $periode->id,
+                'warga_id' => $warga->id,
             ], [
-                'admin_id' => $request->user()->id,
-                'status' => 'belum_dapat',
-                'tanggal_dapat' => null,
+                'status_arisan' => 'belum_dapat',
             ]);
         }
 
@@ -178,6 +173,7 @@ class WargaController extends Controller
             'data' => $warga
         ], 201);
     }
+
 
     public function update(Request $request, $id)
     {
@@ -204,6 +200,62 @@ class WargaController extends Controller
             'data' => $warga
         ]);
     }
+
+    public function tambahWarga(Request $request)
+    {
+        $validated = $request->validate([
+            'periode_id' => 'required|exists:periode,id',
+            'warga_id' => 'required|exists:warga,id',
+        ]);
+
+        $periode = Periode::findOrFail($validated['periode_id']);
+        $warga = Warga::findOrFail($validated['warga_id']);
+
+        // Tambahkan ke tabel periode_warga
+        $periodeWarga = PeriodeWarga::firstOrCreate(
+            [
+                'periode_id' => $periode->id,
+                'warga_id' => $warga->id,
+            ],
+            [
+                // Default status tergantung tipe_warga
+                'status_arisan' => $warga->tipe_warga === 'arisan' ? 'belum_dapat' : 'tidak_ikut',
+            ]
+        );
+
+
+        return response()->json([
+            'message' => 'Warga berhasil ditambahkan ke periode',
+            'data' => [
+                'periode' => $periode->nama ?? $periode->id,
+                'warga' => $warga->nama,
+                'periode_warga' => $periodeWarga,
+            ]
+        ], 201);
+    }
+
+    public function getPengurus()
+    {
+        $pengurus = Warga::whereIn('role', [
+            'ketua',
+            'wakil_ketua',
+            'sekretaris',
+            'bendahara',
+        ])->get();
+
+        if ($pengurus->isEmpty()) {
+            return response()->json([
+                'message' => 'Data pengurus tidak ditemukan',
+                'data' => [],
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Data pengurus berhasil diambil',
+            'data' => $pengurus,
+        ]);
+    }
+
 
 
     public function destroy($id)

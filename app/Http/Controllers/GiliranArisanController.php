@@ -15,7 +15,7 @@ class GiliranArisanController extends Controller
      */
     public function index(Request $request)
     {
-        $query = GiliranArisan::with(['warga', 'periode']);
+        $query = PeriodeWarga::with(['warga', 'periode']);
 
         if ($request->filled('periode_id')) {
             $query->where('periode_id', $request->periode_id);
@@ -25,10 +25,11 @@ class GiliranArisanController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Data giliran berhasil diambil',
+            'message' => 'Data giliran arisan berhasil diambil (dari periode_warga)',
             'data' => $data,
         ]);
     }
+
 
     /**
      * 🔹 Ambil daftar warga yang belum dapat giliran dalam periode tertentu
@@ -39,17 +40,29 @@ class GiliranArisanController extends Controller
             'periode_id' => 'required|exists:periode,id',
         ]);
 
-        $belumDapat = GiliranArisan::with('warga')
+        // Ambil warga dari periode_warga yang belum dapat giliran
+        $belumDapat = PeriodeWarga::with('warga')
             ->where('periode_id', $request->periode_id)
-            ->where('status', 'belum_dapat')
+            ->where('status_arisan', 'belum_dapat')
             ->get();
+
+        // FE spinwheel biasa pakai field 'warga', jadi kita sesuaikan response-nya
+        $formatted = $belumDapat->map(function ($item) {
+            return [
+                'id' => $item->warga->id,
+                'nama' => $item->warga->nama,
+                'tipe_warga' => $item->warga->tipe_warga,
+                'status_arisan' => $item->status_arisan,
+            ];
+        });
 
         return response()->json([
             'success' => true,
-            'message' => 'Daftar warga yang belum dapat giliran',
-            'data' => $belumDapat,
+            'message' => 'Daftar warga yang belum dapat giliran (berdasarkan periode_warga)',
+            'data' => $formatted,
         ]);
     }
+
 
     /**
      * 🔹 Tandai warga sudah dapat giliran (hasil spin)
@@ -61,32 +74,26 @@ class GiliranArisanController extends Controller
             'periode_id' => 'required|exists:periode,id',
         ]);
 
-        $giliran = GiliranArisan::where('warga_id', $request->warga_id)
+        $periodeWarga = PeriodeWarga::where('warga_id', $request->warga_id)
             ->where('periode_id', $request->periode_id)
             ->first();
 
-        if (!$giliran) {
+        if (!$periodeWarga) {
             return response()->json([
                 'success' => false,
                 'message' => 'Warga belum terdaftar dalam periode ini.',
             ], 404);
         }
 
-        // Update status giliran
-        $giliran->update([
-            'status' => 'sudah_dapat',
+        $periodeWarga->update([
+            'status_arisan' => 'sudah_dapat',
             'tanggal_dapat' => Carbon::now(),
         ]);
 
-        // Sinkron ke tabel periode_warga
-        PeriodeWarga::where('warga_id', $request->warga_id)
-            ->where('periode_id', $request->periode_id)
-            ->update(['status_arisan' => 'sudah_dapat']);
-
         return response()->json([
             'success' => true,
-            'message' => 'Giliran warga berhasil diperbarui dan disinkron ke periode_warga',
-            'data' => $giliran,
+            'message' => 'Status arisan warga berhasil diperbarui.',
+            'data' => $periodeWarga->load('warga'),
         ]);
     }
 }

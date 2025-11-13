@@ -88,14 +88,20 @@ class DashboardController extends Controller
         /**
          * 4️⃣ STATUS GILIRAN ARISAN (KHUSUS WARGA ARISAN)
          */
-        $data = GiliranArisan::with('warga')->where('periode_id', $periode->id)->get(['warga_id', 'status']);
+        if ($periode) {
+            $data = GiliranArisan::with('warga')
+                ->where('periode_id', $periode->id)
+                ->get(['warga_id', 'status']);
 
-        $statusArisan = $data->map(function ($item) {
-            return [
-                'nama' => $item->warga->nama ?? '-',
-                'status' => $item->status ?? '-',
-            ];
-        });
+            $statusArisan = $data->map(function ($item) {
+                return [
+                    'nama' => $item->warga->nama ?? '-',
+                    'status' => $item->status ?? '-',
+                ];
+            });
+        } else {
+            $statusArisan = collect([]);
+        }
 
         /**
          * KEMBALIKAN SEMUA DATA
