@@ -93,7 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::controller(AuthController::class)->group(function () {
         Route::delete('logout', 'logout');
         Route::get('profile', 'profile');
-        Route::put('profile ', 'updateProfile');
+        Route::put('profile', 'updateProfile');
         Route::post('password/change', 'changePassword');
     });
 
