@@ -40,7 +40,6 @@ Route::get('/pengurus', [WargaController::class, 'getPengurus']);
 
 Route::prefix('jimpitan')->controller(JimpitanTransactionController::class)->group(function () {
     Route::get('laporan', 'index');
-    Route::get('laporan/export', 'export');
 });
 
 Route::prefix('sampah')->controller(SampahTransactionController::class)->group(function () {
@@ -49,7 +48,6 @@ Route::prefix('sampah')->controller(SampahTransactionController::class)->group(f
 
 Route::prefix('arisan')->controller(ArisanTransactionController::class)->group(function () {
     Route::get('rekap', 'rekap');
-    Route::get('rekap/export', 'exportRekap');
 });
 
 Route::prefix('arisan/spin')->controller(GiliranArisanController::class)->group(function () {
@@ -58,17 +56,14 @@ Route::prefix('arisan/spin')->controller(GiliranArisanController::class)->group(
 
 Route::prefix('kas/rekap')->controller(KasWargaController::class)->group(function () {
     Route::get('/', 'rekap');
-    Route::get('export', 'export');
 });
 
 Route::prefix('kas/laporan')->controller(KasRTController::class)->group(function () {
     Route::get('/', 'index');
-    Route::get('export', 'export');
 });
 
 Route::prefix('documents')->controller(DocumentController::class)->group(function () {
     Route::get('/', 'index');
-    Route::get('{id}/download', 'download');
 });
 
 Route::prefix('youtube')->controller(YoutubeLinkController::class)->group(function () {
@@ -115,6 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('create', 'store');
         Route::put('update/{id}', 'update');
         Route::delete('delete/{id}', 'destroy');
+        Route::get('laporan/export', 'export');
     });
 
     // SAMPAH (Hanya sisa POST/PUT/DELETE/SHOW Detail)
@@ -127,6 +123,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ARISAN
     Route::prefix('arisan')->controller(ArisanTransactionController::class)->group(function () {
         Route::post('rekap/save', 'saveRekap');
+        Route::get('rekap/export', 'exportRekap');
     });
 
     Route::prefix('arisan/spin')->controller(GiliranArisanController::class)->group(function () {
@@ -137,12 +134,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // KAS
     Route::prefix('kas/rekap')->controller(KasWargaController::class)->group(function () {
         Route::post('save', 'rekapSave');
+        Route::get('export', 'export');
     });
 
     Route::prefix('kas/laporan')->controller(KasRtController::class)->group(function () {
         Route::post('create', 'store');
         Route::put('update/{id}', 'update');
         Route::delete('delete/{id}', 'destroy');
+        Route::get('export', 'export');
     });
 
     // DOCUMENTS
@@ -150,6 +149,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', 'store');
         Route::put('/{id}', 'update');
         Route::delete('/{id}', 'destroy');
+        Route::get('{id}/download', 'download');
     });
 
     //  YOUTUBE
