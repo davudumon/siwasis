@@ -14,50 +14,78 @@ class KasRtController extends Controller
      * Ambil semua transaksi kas RT (pemasukan & pengeluaran)
      */
     public function index(Request $request)
-{
-    $query = KasRT::query();
+    {
+        $query = KasRT::query();
 
-    // 🔹 Filter berdasarkan tahun
-    if ($request->filled('year')) {
-        $query->whereYear('tanggal', $request->year);
+        // 🔹 Filter berdasarkan tahun
+        if ($request->filled('year')) {
+            $query->whereYear('tanggal', $request->year);
+        }
+
+        // 🔹 Filter berdasarkan tanggal (range atau tunggal)
+        if ($request->filled('from') && $request->filled('to')) {
+            $query->whereBetween('tanggal', [$request->from, $request->to]);
+        } elseif ($request->filled('tanggal')) {
+            $query->whereDate('tanggal', $request->tanggal);
+        }
+
+        // 🔹 Filter tipe pemasukan/pengeluaran
+        if ($request->filled('tipe')) {
+            $query->where('tipe', $request->tipe);
+        }
+
+        // 🔹 Tentukan jumlah data per halaman (default 10)
+        $perPage = $request->get('per_page', 10);
+
+        // =====================================================
+        // 🔹 Ambil data pagination (DESC sesuai tampilan user)
+        // =====================================================
+        $kas = $query->orderBy('tanggal', 'desc')->paginate($perPage);
+
+        // =====================================================
+        // 🔹 Hitung saldo berjalan HANYA untuk data halaman ini
+        //    dihitung menggunakan ASC, supaya berurutan
+        // =====================================================
+        $items = collect($kas->items());
+        $sorted = $items->sortBy('tanggal');
+
+        $saldo = 0;
+        foreach ($sorted as $item) {
+            if ($item->tipe === 'pemasukan') {
+                $saldo += $item->jumlah;
+            } else {
+                $saldo -= $item->jumlah;
+            }
+
+            // tambahkan saldo sementara ke object
+            $item->saldo_sementara = $saldo;
+        }
+
+        // setelah dihitung ASC, kembalikan lagi ke urutan DESC
+        $finalItems = $sorted->sortByDesc('tanggal')->values();
+
+        // =====================================================
+        // 🔹 Return response
+        // =====================================================
+        return response()->json([
+            'message' => 'Data kas RT berhasil diambil',
+            'filter' => [
+                'year' => $request->year ?? null,
+                'from' => $request->from ?? null,
+                'to' => $request->to ?? null,
+                'tanggal' => $request->tanggal ?? null,
+                'tipe' => $request->tipe ?? null,
+            ],
+            'pagination' => [
+                'current_page' => $kas->currentPage(),
+                'per_page' => $kas->perPage(),
+                'total' => $kas->total(),
+                'last_page' => $kas->lastPage(),
+            ],
+            'data' => $finalItems,
+        ]);
     }
 
-    // 🔹 Filter berdasarkan tanggal (range atau tunggal)
-    if ($request->filled('from') && $request->filled('to')) {
-        $query->whereBetween('tanggal', [$request->from, $request->to]);
-    } elseif ($request->filled('tanggal')) {
-        $query->whereDate('tanggal', $request->tanggal);
-    }
-
-    // 🔹 Filter tipe pemasukan/pengeluaran
-    if ($request->filled('tipe')) {
-        $query->where('tipe', $request->tipe);
-    }
-
-    // 🔹 Tentukan jumlah data per halaman (default 10)
-    $perPage = $request->get('per_page', 10);
-
-    // 🔹 Ambil data dengan pagination
-    $kas = $query->orderByDesc('tanggal')->paginate($perPage);
-
-    return response()->json([
-        'message' => 'Data kas RT berhasil diambil',
-        'filter' => [
-            'year' => $request->year ?? null,
-            'from' => $request->from ?? null,
-            'to' => $request->to ?? null,
-            'tanggal' => $request->tanggal ?? null,
-            'tipe' => $request->tipe ?? null,
-        ],
-        'pagination' => [
-            'current_page' => $kas->currentPage(),
-            'per_page' => $kas->perPage(),
-            'total' => $kas->total(),
-            'last_page' => $kas->lastPage(),
-        ],
-        'data' => $kas->items(),
-    ]);
-}
 
 
     /**

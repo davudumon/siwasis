@@ -13,57 +13,98 @@ class SampahTransactionController extends Controller
     // F. Sampah (SampahController) - GET /api/sampah/laporan
     public function index(Request $request)
     {
-        // 🔹 Ambil parameter filter dan paginasi
-        $perPage = $request->input('per_page', 10); // Default 10 item per halaman
+        // 🔹 Ambil parameter pagination
+        $perPage = $request->input('per_page', 10);
+
+        // 🔹 Query utama + relasi admin
         $query = SampahTransaction::with('admin');
 
-        // 🔹 Filter berdasarkan 'tanggal'
+        // 🔹 Filter berdasarkan tanggal
         if ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // 🔹 Filter berdasarkan 'tipe' (pemasukan/pengeluaran)
+        // 🔹 Filter tipe
         if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
 
-        // 🔹 Filter berdasarkan 'year' (tahun)
+        // 🔹 Filter berdasarkan tahun
         if ($request->filled('year')) {
             $query->whereYear('tanggal', $request->year);
         }
 
-        // 🔹 Filter berdasarkan 'q' (pencarian di kolom title)
+        // 🔹 Pencarian
         if ($request->filled('q')) {
             $searchTerm = '%' . $request->q . '%';
-            $query->where(function ($q) use ($searchTerm) {
-                $q->where('title', 'like', $searchTerm);
-            });
+            $query->where('title', 'like', $searchTerm);
         }
 
-        // 🔹 Ambil data terurut dan dipaginasi
+        // 🔹 Ambil data + pagination
         $transactions = $query->orderBy('tanggal', 'asc')->paginate($perPage);
 
-        // 🔹 Hitung saldo akhir total (tanpa pagination)
-        $saldo = SampahTransaction::sum(DB::raw("CASE WHEN tipe = 'pemasukan' THEN jumlah ELSE -jumlah END"));
+        // 🔥 SALDO GLOBAL KHUSUS SAMPah
+        $saldoAkhirTotal = SampahTransaction::sum(DB::raw("
+        CASE 
+            WHEN tipe = 'pemasukan' THEN jumlah 
+            ELSE -jumlah 
+        END
+    "));
+
+        // 🔥 SALDO filter
+        $saldoFiltered = $query->clone()->sum(DB::raw("
+        CASE 
+            WHEN tipe = 'pemasukan' THEN jumlah 
+            ELSE -jumlah 
+        END
+    "));
+
+        // ======================================================
+        // 🔥 Tambahkan SALDO SEMMENTARA (running balance)
+        // ======================================================
+
+        // Ambil semua berdasarkan filter (untuk hitung running balance)
+        $filteredAll = $query->clone()->orderBy('tanggal', 'asc')->get();
+
+        $saldoSementara = 0;
+        $mapSaldo = [];
+
+        // Hitung saldo sementara dan simpan ID → saldo
+        foreach ($filteredAll as $item) {
+            $saldoSementara += ($item->tipe === 'pemasukan' ? $item->jumlah : -$item->jumlah);
+            $mapSaldo[$item->id] = $saldoSementara;
+        }
+
+        // Tambahkan saldo_sementara ke item hasil pagination
+        $dataWithSaldo = collect($transactions->items())->map(function ($trx) use ($mapSaldo) {
+            $trx->saldo_sementara = $mapSaldo[$trx->id] ?? 0;
+            return $trx;
+        });
 
         return response()->json([
             'message' => 'Data transaksi sampah berhasil diambil',
-            'saldo_akhir_total' => $saldo,
+            'saldo_akhir_total' => $saldoAkhirTotal,
+            'saldo_filter' => $saldoFiltered,
+
             'pagination' => [
                 'current_page' => $transactions->currentPage(),
                 'per_page' => $transactions->perPage(),
                 'total' => $transactions->total(),
                 'last_page' => $transactions->lastPage(),
             ],
+
             'filters' => [
                 'tanggal' => $request->tanggal ?? null,
                 'year' => $request->year ?? null,
                 'tipe' => $request->tipe ?? null,
                 'q' => $request->q ?? null,
             ],
-            'data' => $transactions->items(),
+
+            'data' => $dataWithSaldo,
         ]);
     }
+
+
 
 
     // Tambah transaksi baru

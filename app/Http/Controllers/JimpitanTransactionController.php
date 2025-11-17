@@ -21,7 +21,7 @@ class JimpitanTransactionController extends Controller
         // 🔹 Query dasar
         $query = JimpitanTransaction::with('admin')->orderBy('tanggal', 'desc');
 
-        // 🔹 Filter berdasarkan 'tipe' (pemasukan/pengeluaran)
+        // 🔹 Filter berdasarkan 'tipe'
         if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
@@ -31,42 +31,72 @@ class JimpitanTransactionController extends Controller
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // 🔹 Filter berdasarkan 'year' (tahun)
+        // 🔹 Filter berdasarkan 'year'
         if ($request->filled('year')) {
             $query->whereYear('tanggal', $request->year);
         }
 
-        // 🔹 Filter berdasarkan 'q' (pencarian di kolom keterangan)
+        // 🔹 Filter pencarian (keterangan)
         if ($request->filled('q')) {
-            $searchTerm = '%' . $request->q . '%';
-            $query->where('keterangan', 'like', $searchTerm);
+            $query->where('keterangan', 'like', '%' . $request->q . '%');
         }
 
-        // 🔹 Ambil data dengan paginasi
+        // ======================================================
+        // 🔹 Ambil data paginated (DESC untuk tampilan)
+        // ======================================================
         $transactions = $query->paginate($perPage);
 
-        // 🔹 Hitung saldo akhir total dari seluruh data
+        // ======================================================
+        // 🔹 Hitung saldo sementara (HANYA dalam halaman)
+        // ======================================================
+        $items = collect($transactions->items());
+
+        // Urut ASC untuk menghitung saldo berurutan
+        $sortedAsc = $items->sortBy('tanggal');
+
+        $saldo = 0;
+
+        foreach ($sortedAsc as $item) {
+            if ($item->tipe === 'masuk' || $item->tipe === 'pemasukan') {
+                $saldo += $item->jumlah;
+            } else {
+                $saldo -= $item->jumlah;
+            }
+
+            $item->saldo_sementara = $saldo;
+        }
+
+        // Kembalikan ke DESC (seperti tampilan normal)
+        $finalItems = $sortedAsc->sortByDesc('tanggal')->values();
+
+        // Total saldo global
         $totalSaldo = $this->calculateTotalBalance() ?? 0;
 
-        // 🔹 Format respons JSON dengan pagination dan filter
+        // ======================================================
+        // 🔹 Return response
+        // ======================================================
         return response()->json([
             'message' => 'Data transaksi jimpitan berhasil diambil',
             'saldo_akhir_total' => $totalSaldo,
+
             'pagination' => [
                 'current_page' => $transactions->currentPage(),
                 'per_page' => $transactions->perPage(),
                 'total' => $transactions->total(),
                 'last_page' => $transactions->lastPage(),
             ],
+
             'filters' => [
                 'tanggal' => $request->tanggal ?? null,
                 'year' => $request->year ?? null,
                 'tipe' => $request->tipe ?? null,
                 'q' => $request->q ?? null,
             ],
-            'data' => $transactions->items(),
+
+            'data' => $finalItems,
         ]);
     }
+
 
 
     /**
