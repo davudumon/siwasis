@@ -4,257 +4,385 @@ namespace App\Http\Controllers;
 
 use App\Models\KasWarga;
 use App\Models\Periode;
-use App\Models\Warga;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class KasWargaController extends Controller
 {
     /**
-     * GET: Ambil rekap kas warga (bisa difilter berdasarkan periode & tanggal multiple)
+     * Helper untuk mengumpulkan data rekap Kas Warga
      */
-    public function rekap(Request $request)
+    private function getRekapData(Request $request, $isPaginated = true)
     {
+        // Validasi
         $request->validate([
             'periode_id' => 'nullable|exists:periode,id',
-            'year' => 'nullable|digits:4',
-            'page' => 'nullable|integer|min:1',
-            'per_page' => 'nullable|integer|min:1',
-            'q' => 'nullable|string',
-            'rt' => 'nullable|string',
-            'from' => 'nullable|date',
-            'to' => 'nullable|date',
-            'min' => 'nullable|numeric|min:0',
-            'max' => 'nullable|numeric|min:0',
-            'no_paginate' => 'nullable|boolean',
+            'year'       => 'nullable|digits:4',
+            'page'       => 'nullable|integer|min:1',
+            'q'          => 'nullable|string',
+            'rt'         => 'nullable|string',
+            'from'       => 'nullable|date',
+            'to'         => 'nullable|date',
+            'min'        => 'nullable|numeric|min:0',
+            'max'        => 'nullable|numeric|min:0',
         ]);
 
-        // 🔹 Ambil tanggal dari periode atau tahun
+        // ============================
+        // Tentukan periode
+        // ============================
+        $periode = null;
+
         if ($request->filled('periode_id')) {
             $periode = Periode::find($request->periode_id);
-            $startDate = Carbon::parse($periode->start_date);
-            $endDate = Carbon::parse($periode->end_date);
+            if (!$periode) {
+                return [
+                    'error' => true,
+                    'message' => 'Periode tidak ditemukan.',
+                    'code' => 404
+                ];
+            }
+        } elseif (!$request->filled('year')) {
+            // fallback → periode terbaru
+            $periode = Periode::orderByDesc('tanggal_mulai')->first();
+            if (!$periode) {
+                return [
+                    'error' => true,
+                    'message' => 'Tidak ada periode tersedia.',
+                    'code' => 404
+                ];
+            }
+        }
+
+        if ($periode) {
+            $startDate = Carbon::parse($periode->tanggal_mulai)->startOfDay();
+            $endDate   = Carbon::parse($periode->tanggal_selesai)->endOfDay();
             $periodeNama = $periode->nama;
-            $periodeId = $periode->id;
+            $periodeId   = $periode->id;
+            $nominalKas  = $periode->nominal_kas ?? 0; // pastikan nama kolomnya benar
         } elseif ($request->filled('year')) {
             $year = $request->year;
-            $startDate = Carbon::create($year, 1, 1);
-            $endDate = Carbon::create($year, 12, 31);
+            $startDate = Carbon::create($year, 1, 1)->startOfDay();
+            $endDate   = Carbon::create($year, 12, 31)->endOfDay();
             $periodeNama = "Tahun $year";
             $periodeId = null;
+            $nominalKas = 0;
         } else {
-            return response()->json(['message' => 'Harus mengirim periode_id atau year'], 422);
+            return [
+                'error' => true,
+                'message' => 'Harus mengirim periode_id atau year.',
+                'code' => 422
+            ];
         }
 
-        // 🔹 Generate daftar tanggal (setiap 14 hari)
+        // ============================
+        // Generate tanggal interval 14 hari
+        // ============================
         $dates = collect();
         $period = CarbonPeriod::create($startDate, '14 days', $endDate);
-        foreach ($period as $date) {
-            $dates->push($date->toDateString());
+
+        foreach ($period as $d) {
+            $dates->push($d->toDateString());
         }
 
-        // 🔹 Query utama
-        $query = DB::table('warga')
-            ->leftJoin('kas_warga', function ($join) use ($periodeId, $dates) {
-                $join->on('warga.id', '=', 'kas_warga.warga_id')
-                    ->whereIn('kas_warga.tanggal', $dates);
-                if ($periodeId) {
-                    $join->where('kas_warga.periode_id', $periodeId);
-                }
-            })
+        // ============================
+        // Query data kas warga
+        // ============================
+        $rawData = DB::table('warga')
             ->select(
-                'warga.id',
+                'warga.id as warga_id',
                 'warga.nama',
                 'warga.rt',
                 'kas_warga.tanggal',
                 'kas_warga.status',
                 'kas_warga.jumlah'
             )
-            ->when($request->q, fn($q) => $q->where('warga.nama', 'like', "%{$request->q}%"))
-            ->when($request->rt, fn($q) => $q->where('warga.rt', $request->rt))
-            ->when($request->min, fn($q) => $q->where('kas_warga.jumlah', '>=', $request->min))
-            ->when($request->max, fn($q) => $q->where('kas_warga.jumlah', '<=', $request->max))
-            ->when($request->from && $request->to, fn($q) => $q->whereBetween('kas_warga.tanggal', [$request->from, $request->to]))
-            ->orderBy('warga.rt')
-            ->orderBy('warga.nama');
-
-        // 🔹 Tentukan jumlah data per halaman
-        $perPage = $request->get('per_page', 10);
-
-        // 🔹 Jalankan query (bisa tanpa pagination jika diminta)
-        if ($request->boolean('no_paginate')) {
-            $data = $query->get();
-
-            return response()->json([
-                'message' => 'Rekap kas warga berhasil diambil',
-                'periode' => $periodeNama,
-                'dates' => $dates,
-                'filters' => [
-                    'periode_id' => $periodeId,
-                    'year' => $request->year,
-                    'rt' => $request->rt,
-                    'q' => $request->q,
-                    'from' => $request->from,
-                    'to' => $request->to,
-                    'min' => $request->min,
-                    'max' => $request->max,
-                ],
-                'data' => $data,
-            ]);
-        }
-
-        // 🔹 Dengan pagination
-        $paginated = $query->paginate($perPage);
-
-        return response()->json([
-            'message' => 'Rekap kas warga berhasil diambil',
-            'periode' => $periodeNama,
-            'dates' => $dates,
-            'filters' => [
-                'periode_id' => $periodeId,
-                'year' => $request->year,
-                'rt' => $request->rt,
-                'q' => $request->q,
-                'from' => $request->from,
-                'to' => $request->to,
-                'min' => $request->min,
-                'max' => $request->max,
-            ],
-            'pagination' => [
-                'current_page' => $paginated->currentPage(),
-                'per_page' => $paginated->perPage(),
-                'total' => $paginated->total(),
-                'last_page' => $paginated->lastPage(),
-            ],
-            'data' => $paginated->items(),
-        ]);
-    }
-
-
-    /**
-     * POST /api/kas/rekap/save
-     * Simpan hasil centang status bayar
-     */
-    public function rekapSave(Request $request)
-    {
-        $request->validate([
-            'periode_id' => 'required|exists:periode,id',
-            'updates' => 'required|array',
-            'updates.*.warga_id' => 'required|exists:warga,id',
-            'updates.*.tanggal' => 'required|date',
-            'updates.*.status' => 'required|in:sudah_bayar,belum_bayar',
-        ]);
-
-        $now = now();
-        $adminId = $request->user()->id;
-
-        // Bentuk array untuk upsert
-        $data = array_map(function ($item) use ($request, $adminId, $now) {
-            return [
-                'warga_id' => $item['warga_id'],
-                'periode_id' => $request->periode_id,
-                'tanggal' => $item['tanggal'],
-                'status' => $item['status'],
-                'admin_id' => $adminId,
-                'updated_at' => $now,
-                'created_at' => $now,
-            ];
-        }, $request->updates);
-
-        // 🔥 Upsert massal (insert/update sekaligus)
-        KasWarga::upsert(
-            $data,
-            ['warga_id', 'periode_id', 'tanggal'], // unique keys
-            ['status', 'admin_id', 'updated_at']   // columns to update if duplicate
-        );
-
-        return response()->json([
-            'message' => 'Rekap kas berhasil disimpan (batch upsert)',
-            'count' => count($data),
-        ]);
-    }
-
-    public function export(Request $request)
-    {
-        $request->validate([
-            'periode_id' => 'nullable|exists:periode,id',
-            'year' => 'nullable|digits:4',
-        ]);
-
-        // 🔹 Gunakan query yang sama dengan rekap
-        $data = $this->getFilteredKas($request)->orderBy('warga.rt')->orderBy('warga.nama')->get();
-
-        $filename = 'rekap_kas_warga_' . now()->format('Ymd_His') . '.csv';
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"$filename\"",
-        ];
-
-        $callback = function () use ($data) {
-            $handle = fopen('php://output', 'w');
-            fputs($handle, "\xEF\xBB\xBF"); // biar kebaca di Excel UTF-8
-
-            fputcsv($handle, ['Nama', 'RT', 'Tanggal', 'Status', 'Jumlah']);
-
-            foreach ($data as $row) {
-                fputcsv($handle, [
-                    $row->nama,
-                    $row->rt,
-                    $row->tanggal,
-                    ucfirst(str_replace('_', ' ', $row->status)),
-                    number_format($row->jumlah ?? 0, 0, ',', '.'),
-                ]);
-            }
-
-            fclose($handle);
-        };
-
-        return new StreamedResponse($callback, 200, $headers);
-    }
-
-    /**
-     * 🔹 Helper internal untuk rekap/export agar query konsisten
-     */
-    private function getFilteredKas(Request $request)
-    {
-        $periodeId = $request->periode_id;
-        $dates = collect();
-
-        if ($periodeId) {
-            $periode = Periode::find($periodeId);
-            $startDate = Carbon::parse($periode->start_date);
-            $endDate = Carbon::parse($periode->end_date);
-        } elseif ($request->filled('year')) {
-            $year = $request->year;
-            $startDate = Carbon::create($year, 1, 1);
-            $endDate = Carbon::create($year, 12, 31);
-        } else {
-            $startDate = now()->startOfYear();
-            $endDate = now()->endOfYear();
-        }
-
-        $period = CarbonPeriod::create($startDate, '14 days', $endDate);
-        foreach ($period as $date) {
-            $dates->push($date->toDateString());
-        }
-
-        return DB::table('warga')
             ->leftJoin('kas_warga', function ($join) use ($periodeId, $dates) {
                 $join->on('warga.id', '=', 'kas_warga.warga_id')
                     ->whereIn('kas_warga.tanggal', $dates);
+
                 if ($periodeId) {
                     $join->where('kas_warga.periode_id', $periodeId);
                 }
             })
-            ->select(
-                'warga.nama',
-                'warga.rt',
-                'kas_warga.tanggal',
-                'kas_warga.status',
-                'kas_warga.jumlah'
-            );
+            ->when(
+                $request->q,
+                fn($q) =>
+                $q->where('warga.nama', 'like', "%{$request->q}%")
+            )
+            ->when(
+                $request->rt,
+                fn($q) =>
+                $q->where('warga.rt', $request->rt)
+            )
+            ->when(
+                $request->min,
+                fn($q) =>
+                $q->where('kas_warga.jumlah', '>=', $request->min)
+            )
+            ->when(
+                $request->max,
+                fn($q) =>
+                $q->where('kas_warga.jumlah', '<=', $request->max)
+            )
+            ->when(
+                $request->from && $request->to,
+                fn($q) => $q->whereBetween('kas_warga.tanggal', [$request->from, $request->to])
+            )
+            ->orderBy('warga.rt')
+            ->orderBy('warga.nama');
+
+        $data = $rawData->get();
+
+        return [
+            'error' => false,
+            'data' => $data,
+            'dates' => $dates,
+            'periodeNama' => $periodeNama,
+            'periodeId' => $periodeId,
+            'nominalKas' => $nominalKas,
+            'filters' => [
+                'periode_id' => $periodeId,
+                'year'       => $request->year,
+                'rt'         => $request->rt,
+                'q'          => $request->q,
+                'from'       => $request->from,
+                'to'         => $request->to,
+                'min'        => $request->min,
+                'max'        => $request->max,
+            ]
+        ];
+    }
+
+    /**
+     * API GET rekap kas warga
+     */
+    public function rekap(Request $request)
+    {
+        // Ambil semua data transaksi dari getRekapData (TANPA pagination)
+        $result = $this->getRekapData($request, false);
+
+        if ($result['error']) {
+            return response()->json(['message' => $result['message']], $result['code']);
+        }
+
+        $rawTransactions = collect($result['data']); // semua transaksi
+
+        // ============================================================
+        // GROUPING PER WARGA
+        // ============================================================
+        $groupedData = $rawTransactions->groupBy('warga_id')->map(function ($items) use ($result) {
+
+            $warga = $items->first();
+            $total = 0;
+            $paymentStatus = [];
+
+            foreach ($result['dates'] as $date) {
+                $trx = $items->firstWhere('tanggal', $date);
+
+                if ($trx) {
+                    $total += $trx->jumlah;
+                    $paymentStatus[$date] = [
+                        'status' => $trx->status,
+                        'jumlah' => $trx->jumlah,
+                    ];
+                } else {
+                    $paymentStatus[$date] = [
+                        'status' => 'belum_bayar',
+                        'jumlah' => 0,
+                    ];
+                }
+            }
+
+            return [
+                'warga_id' => $warga->warga_id,
+                'nama' => $warga->nama,
+                'rt' => $warga->rt,
+                'total_setoran' => $total,
+                'payment_status' => $paymentStatus,
+            ];
+        })->values();
+
+
+        // ============================================================
+        // PAGINATE PER WARGA (BUKAN PER TRANSAKSI)
+        // ============================================================
+        $page    = $request->get('page', 1);
+        $perPage = 10;
+
+        $paginated = new \Illuminate\Pagination\LengthAwarePaginator(
+            $groupedData->slice(($page - 1) * $perPage, $perPage)->values(),
+            $groupedData->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        // ============================================================
+        // RETURN JSON
+        // ============================================================
+        return response()->json([
+            'message' => 'Rekap kas warga berhasil diambil',
+            'periode' => $result['periodeNama'],
+            'nominal_kas' => $result['nominalKas'],
+            'dates' => $result['dates'],
+            'filters' => $result['filters'],
+            'data' => $paginated,
+        ]);
+    }
+
+
+
+
+    /**
+     * API POST simpan/update rekap kas warga
+     */
+    public function rekapSave(Request $request)
+    {
+        $request->validate([
+            'periode_id'            => 'required|exists:periode,id',
+            'updates'               => 'required|array',
+            'updates.*.warga_id'    => 'required|exists:warga,id',
+            'updates.*.tanggal'     => 'required|date',
+            'updates.*.status'      => 'required|in:sudah_bayar,belum_bayar',
+            'updates.*.jumlah'      => 'nullable|numeric|min:0',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $periode = Periode::find($request->periode_id);
+            $defaultJumlah = $periode->nominal_kas;
+
+            foreach ($request->updates as $i) {
+
+                $jumlah = $i['jumlah'] ?? $defaultJumlah;
+                if ($jumlah === null || $jumlah === "") {
+                    $jumlah = $defaultJumlah;
+                }
+
+                KasWarga::updateOrCreate(
+                    [
+                        'warga_id' => $i['warga_id'],
+                        'periode_id' => $request->periode_id,
+                        'tanggal' => $i['tanggal'],
+                    ],
+                    [
+                        'status' => $i['status'],
+                        'jumlah' => $jumlah,
+                        'admin_id' => $request->user()->id,
+                        'updated_at' => now(),
+                    ]
+                );
+            }
+
+            DB::commit();
+            return response()->json(['message' => 'Rekap kas warga berhasil disimpan']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Gagal menyimpan rekap kas warga.',
+                'error'   => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+    /**
+     * Export CSV
+     */
+    public function exportRekap(Request $request)
+    {
+        $result = $this->getRekapData($request, false);
+
+        if ($result['error']) {
+            return response()->json(['message' => $result['message']], $result['code']);
+        }
+
+        $all = $result['data'];
+        $dates = $result['dates'];
+        $periodeNama = $result['periodeNama'];
+        $nominalKas = $result['nominalKas'];
+
+        // susun data per warga
+        $rekap = $all->groupBy('warga_id')->map(
+            function ($items) use ($dates) {
+                $warga = $items->first();
+                $total = 0;
+                $payment = [];
+
+                foreach ($dates as $date) {
+                    $trx = $items->firstWhere('tanggal', $date);
+
+                    if ($trx) {
+                        $total += $trx->jumlah;
+                        $payment[$date] = [
+                            'status' => $trx->status === 'sudah_bayar' ? '✅' : '❌',
+                            'jumlah' => $trx->jumlah,
+                        ];
+                    } else {
+                        $payment[$date] = [
+                            'status' => '⬜',
+                            'jumlah' => 0,
+                        ];
+                    }
+                }
+
+                return [
+                    'id' => $warga->warga_id,
+                    'nama' => $warga->nama,
+                    'rt' => $warga->rt,
+                    'total_setoran' => $total,
+                    'payment_status' => $payment,
+                ];
+            }
+        )->values();
+
+        $fileName = 'rekap_kas_' . Str::slug($periodeNama) . '_' . now()->format('Ymd_His') . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"$fileName\""
+        ];
+
+        $callback = function () use ($rekap, $dates, $nominalKas) {
+            $file = fopen('php://output', 'w');
+
+            // header
+            $mainHeader = ['Nama Warga', 'RT', 'Total Setoran'];
+            $dateHeaders = [];
+
+            foreach ($dates as $date) {
+                $dateHeaders[] = Carbon::parse($date)->format('d/m/Y');
+            }
+
+            fputcsv($file, array_merge($mainHeader, $dateHeaders));
+
+            foreach ($rekap as $row) {
+                $line = [
+                    $row['nama'],
+                    $row['rt'],
+                    $row['total_setoran'],
+                ];
+
+                foreach ($dates as $d) {
+                    $line[] = $row['payment_status'][$d]['status'] ?? '⬜';
+                }
+
+                fputcsv($file, $line);
+            }
+
+            // summary
+            fputcsv($file, []);
+            fputcsv($file, ['Total Semua:', '', $rekap->sum('total_setoran')]);
+            fputcsv($file, ['Nominal Kas Per Periode:', '', $nominalKas]);
+
+            fclose($file);
+        };
+
+        return new StreamedResponse($callback, 200, $headers);
     }
 }

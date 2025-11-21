@@ -24,23 +24,37 @@ class Admin extends Authenticatable
         'remember_token',
     ];
 
-    public function articles(){
+    protected $appends = ['photo_url'];
+
+    public function articles()
+    {
         return $this->hasMany(Article::class);
     }
 
-    public function warga(){
+    public function warga()
+    {
         return $this->hasMany(Warga::class);
     }
 
-    public function youtube_links(){
+    public function youtube_links()
+    {
         return $this->hasMany(YoutubeLink::class);
     }
 
-    public function documents(){
+    public function documents()
+    {
         return $this->hasMany(Document::class);
     }
 
-    public function sampah_transaction(){
+    public function sampah_transaction()
+    {
         return $this->hasMany(SampahTransaction::class);
+    }
+
+    public function getPhotoUrlAttribute()
+    {
+        return $this->photo
+            ? config('app.url') . '/storage/profile/' . $this->photo
+            : null;
     }
 }

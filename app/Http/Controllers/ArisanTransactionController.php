@@ -70,7 +70,7 @@ class ArisanTransactionController extends Controller
             $endDate   = Carbon::parse($periode->tanggal_selesai)->endOfDay();
             $periodeNama = $periode->nama;
             $periodeId   = $periode->id;
-            $nominalArisan = $periode->nominal_arisan ?? 0;
+            $nominalArisan = $periode->nominal ?? 0;
         }
         // ============================================================
         // 🔹 Jika year dikirim (tanpa periode_id)
@@ -244,14 +244,24 @@ class ArisanTransactionController extends Controller
             'updates.*.warga_id' => 'required|exists:warga,id',
             'updates.*.tanggal' => 'required|date',
             'updates.*.status' => 'required|in:sudah_bayar,belum_bayar',
-            // Tambahkan validasi jumlah, asumsikan nominal setoran arisan
-            'updates.*.jumlah' => 'required|numeric|min:0',
+            'updates.*.jumlah' => 'nullable|numeric|min:0', // boleh null
         ]);
 
         try {
             DB::beginTransaction();
 
+            // Ambil nominal default dari tabel periode
+            $periode = Periode::find($request->periode_id);
+            $defaultJumlah = $periode->nominal; 
+
             foreach ($request->updates as $item) {
+
+                // Jika null → ganti pakai nominal periode
+                $jumlah = $item['jumlah'] ?? $defaultJumlah;
+                if ($jumlah === null || $jumlah === "") {
+                    $jumlah = $defaultJumlah;
+                }
+
                 ArisanTransaction::updateOrCreate(
                     [
                         'warga_id' => $item['warga_id'],
@@ -260,7 +270,7 @@ class ArisanTransactionController extends Controller
                     ],
                     [
                         'status' => $item['status'],
-                        'jumlah' => $item['jumlah'],
+                        'jumlah' => $jumlah,
                         'admin_id' => $request->user()->id,
                         'updated_at' => now(),
                     ]
@@ -271,10 +281,13 @@ class ArisanTransactionController extends Controller
             return response()->json(['message' => 'Rekap arisan berhasil disimpan']);
         } catch (\Exception $e) {
             DB::rollBack();
-            // Log error
-            return response()->json(['message' => 'Gagal menyimpan rekap arisan.', 'error' => $e->getMessage()], 500);
+            return response()->json([
+                'message' => 'Gagal menyimpan rekap arisan.',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
+
 
     /**
      * Mengekspor data rekapitulasi arisan ke format CSV.

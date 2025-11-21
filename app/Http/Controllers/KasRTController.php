@@ -34,7 +34,13 @@ class KasRtController extends Controller
             $query->where('tipe', $request->tipe);
         }
 
-        // 🔹 Tentukan jumlah data per halaman (default 10)
+        // 🔹 Filter q (search by keterangan)
+        if ($request->filled('q')) {
+            $searchTerm = '%' . $request->q . '%';
+            $query->where('keterangan', 'like', $searchTerm);
+        }
+
+        // 🔹 Tentukan jumlah data per halaman
         $perPage = $request->get('per_page', 10);
 
         // =====================================================
@@ -43,30 +49,20 @@ class KasRtController extends Controller
         $kas = $query->orderBy('tanggal', 'desc')->paginate($perPage);
 
         // =====================================================
-        // 🔹 Hitung saldo berjalan HANYA untuk data halaman ini
-        //    dihitung menggunakan ASC, supaya berurutan
+        // 🔹 Hitung saldo berjalan (ASC)
         // =====================================================
         $items = collect($kas->items());
         $sorted = $items->sortBy('tanggal');
 
         $saldo = 0;
         foreach ($sorted as $item) {
-            if ($item->tipe === 'pemasukan') {
-                $saldo += $item->jumlah;
-            } else {
-                $saldo -= $item->jumlah;
-            }
-
-            // tambahkan saldo sementara ke object
+            $saldo += ($item->tipe === 'pemasukan') ? $item->jumlah : -$item->jumlah;
             $item->saldo_sementara = $saldo;
         }
 
-        // setelah dihitung ASC, kembalikan lagi ke urutan DESC
+        // lalu balik lagi ke DESC
         $finalItems = $sorted->sortByDesc('tanggal')->values();
 
-        // =====================================================
-        // 🔹 Return response
-        // =====================================================
         return response()->json([
             'message' => 'Data kas RT berhasil diambil',
             'filter' => [
@@ -75,6 +71,7 @@ class KasRtController extends Controller
                 'to' => $request->to ?? null,
                 'tanggal' => $request->tanggal ?? null,
                 'tipe' => $request->tipe ?? null,
+                'q' => $request->q ?? null,
             ],
             'pagination' => [
                 'current_page' => $kas->currentPage(),
@@ -85,6 +82,7 @@ class KasRtController extends Controller
             'data' => $finalItems,
         ]);
     }
+
 
 
 

@@ -13,28 +13,28 @@ class SampahTransactionController extends Controller
     // F. Sampah (SampahController) - GET /api/sampah/laporan
     public function index(Request $request)
     {
-        // 🔹 Ambil parameter pagination
+        // Ambil parameter pagination
         $perPage = $request->input('per_page', 10);
 
-        // 🔹 Query utama + relasi admin
+        // Query utama + relasi admin
         $query = SampahTransaction::with('admin');
 
-        // 🔹 Filter berdasarkan tanggal
+        // Filter berdasarkan tanggal
         if ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // 🔹 Filter tipe
+        // Filter tipe
         if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
 
-        // 🔹 Filter berdasarkan tahun
+        // Filter berdasarkan tahun
         if ($request->filled('year')) {
             $query->whereYear('tanggal', $request->year);
         }
 
-        // 🔹 Pencarian
+        // Pencarian
         if ($request->filled('q')) {
             $searchTerm = '%' . $request->q . '%';
             $query->where('title', 'like', $searchTerm);
@@ -103,7 +103,6 @@ class SampahTransactionController extends Controller
             'data' => $dataWithSaldo,
         ]);
     }
-
 
 
 

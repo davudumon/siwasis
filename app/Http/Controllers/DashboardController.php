@@ -89,11 +89,11 @@ class DashboardController extends Controller
         if ($periode) {
             $data = PeriodeWarga::with('warga')
                 ->where('periode_id', $periode->id)
-                ->get(['warga_id', 'status']);
+                ->get(['warga_id', 'status_arisan']);
 
             $statusArisan = $data->map(fn($item) => [
                 'nama' => $item->warga->nama ?? '-',
-                'status' => $item->status ?? 'belum_dapat',
+                'status_arisan' => $item->status_arisan ?? 'belum_dapat',
             ]);
         } else {
             $statusArisan = collect([]);

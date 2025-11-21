@@ -114,15 +114,12 @@ class AuthController extends Controller
 
         // Jika ada upload foto baru
         if ($request->hasFile('photo')) {
-            // Hapus foto lama jika ada
-            if ($admin->photo && Storage::exists('public/profile/' . $admin->photo)) {
-                Storage::delete('public/profile/' . $admin->photo);
+            if ($admin->photo && Storage::disk('public')->exists('profile/' . $admin->photo)) {
+                Storage::disk('public')->delete('profile/' . $admin->photo);
             }
 
-            // Simpan foto baru
-            $path = $request->file('photo')->store('public/profile');
-            $filename = basename($path);
-            $admin->photo = $filename;
+            $path = $request->file('photo')->store('profile', 'public');
+            $admin->photo = basename($path);
         }
 
         $admin->save();
@@ -133,7 +130,7 @@ class AuthController extends Controller
                 'id' => $admin->id,
                 'name' => $admin->name,
                 'email' => $admin->email,
-                'photo_url' => $admin->photo ? asset('storage/profile/' . $admin->photo) : null,
+                'photo_url' => $admin->photo_url,
             ]
         ]);
     }

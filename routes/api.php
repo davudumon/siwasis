@@ -91,7 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::controller(AuthController::class)->group(function () {
         Route::delete('logout', 'logout');
         Route::get('profile', 'profile');
-        Route::put('profile', 'updateProfile');
+        Route::post('profile', 'updateProfile');
         Route::post('password/change', 'changePassword');
     });
 
@@ -118,6 +118,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('create', 'store');
         Route::put('update/{id}', 'update');
         Route::delete('delete/{id}', 'destroy');
+        Route::get('laporan/export', 'export');
     });
 
     // ARISAN
