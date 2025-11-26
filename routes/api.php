@@ -123,7 +123,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ARISAN
     Route::prefix('arisan')->controller(ArisanTransactionController::class)->group(function () {
-        Route::post('rekap/save', 'saveRekap');
+        Route::post('rekap/save', 'rekapSave');
         Route::get('rekap/export', 'exportRekap');
     });
 
