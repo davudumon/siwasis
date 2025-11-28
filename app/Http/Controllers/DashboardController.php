@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\JimpitanTransaction;
 use App\Models\KasRT;
 use App\Models\KasWarga;
 use App\Models\Periode;
 use App\Models\PeriodeWarga;
-use App\Models\Warga;
+use App\Models\SampahTransaction;
+use App\Models\Warga; // 👈 ASUMSI MODEL
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon; // Digunakan untuk penentuan tanggal
 
 class DashboardController extends Controller
 {
@@ -18,37 +21,70 @@ class DashboardController extends Controller
          * 1️⃣ Tentukan periode otomatis jika tidak dikirim
          */
         $periode = null;
-        if ($request->filled('periode')) {
-            $periode = Periode::find($request->periode);
+        if ($request->filled('periode_id')) {
+            $periode = Periode::find($request->periode_id);
         }
         if (!$periode) {
             $periode = Periode::latest()->first();
         }
 
-        $from = $request->from ?? ($periode?->tanggal_mulai ?? now()->startOfYear());
-        $to   = $request->to ?? ($periode?->tanggal_selesai ?? now()->endOfYear());
+        // Tentukan rentang tanggal
+        $from = $request->from ? Carbon::parse($request->from)->startOfDay() : ($periode?->tanggal_mulai ? Carbon::parse($periode->tanggal_mulai)->startOfDay() : now()->startOfYear());
+        $to   = $request->to ? Carbon::parse($request->to)->endOfDay() : ($periode?->tanggal_selesai ? Carbon::parse($periode->tanggal_selesai)->endOfDay() : now()->endOfYear());
 
         /**
-         * 2️⃣ RINGKASAN KEUANGAN (KAS RT + ARISAN)
+         * 2️⃣ RINGKASAN KEUANGAN
          */
-        $totalPemasukanKas = KasRT::where('tipe', 'pemasukan')
+
+        // --- KAS RT (Pemasukan & Pengeluaran) ---
+        $totalPemasukanKasRT = KasRT::where('tipe', 'pemasukan')
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
-        $totalPengeluaranKas = KasRT::where('tipe', 'pengeluaran')
+        $totalPengeluaranKasRT = KasRT::where('tipe', 'pengeluaran')
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
+        // --- KAS WARGA (HANYA Pemasukan dari iuran/setoran - asumsi 'sudah_bayar' adalah pemasukan) ---
+        $totalPemasukanKasWarga = KasWarga::where('status', 'sudah_bayar')
+            ->whereDoesntHave('warga', fn($q) => $q->where('role', 'arisan')) // Exclude Arisan setoran
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
+
+        // --- ARISAN (HANYA Pemasukan dari setoran/iuran - asumsi role 'arisan' dan status 'sudah_bayar') ---
         $totalSetoranArisan = KasWarga::where('status', 'sudah_bayar')
             ->whereHas('warga', fn($q) => $q->where('role', 'arisan'))
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
-        $totalPemasukan = $totalPemasukanKas + $totalSetoranArisan;
-        $saldo = $totalPemasukan - $totalPengeluaranKas;
+        // --- SAMPAH (Pemasukan & Pengeluaran) ---
+        // 2️⃣ Asumsi perhitungan untuk Sampah
+        $totalPemasukanSampah = SampahTransaction::where('tipe', 'pemasukan')
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
+
+        $totalPengeluaranSampah = SampahTransaction::where('tipe', 'pengeluaran')
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
+
+        // --- JIMPITAN (Pemasukan & Pengeluaran) ---
+        // 2️⃣ Asumsi perhitungan untuk Jimpitan
+        $totalPemasukanJimpitan = JimpitanTransaction::where('tipe', 'pemasukan')
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
+
+        $totalPengeluaranJimpitan = JimpitanTransaction::where('tipe', 'pengeluaran')
+            ->whereBetween('tanggal', [$from, $to])
+            ->sum('jumlah');
+
+        // --- PERHITUNGAN TOTAL ---
+        $totalPemasukan = $totalPemasukanKasRT + $totalPemasukanKasWarga + $totalSetoranArisan + $totalPemasukanSampah + $totalPemasukanJimpitan;
+        $totalPengeluaran = $totalPengeluaranKasRT + $totalPengeluaranSampah + $totalPengeluaranJimpitan; // KasWarga dan Arisan tidak memiliki Pengeluaran di sini (diasumsikan pengeluaran Arisan/Kas Warga diwakili oleh KasRT/lainnya)
+
+        $saldoAkhir = $totalPemasukan - $totalPengeluaran; // 👈 Saldo Akhir yang DITAMBAHKAN
 
         /**
-         * 3️⃣ CHART PEMASUKAN VS PENGELUARAN PER BULAN
+         * 3️⃣ CHART PEMASUKAN VS PENGELUARAN PER BULAN (Hanya Kas RT - Jika ingin gabungan, perlu kueri yang lebih kompleks)
          */
         $chartKeuangan = KasRT::select(
             DB::raw('DATE_FORMAT(tanggal, "%M %Y") as bulan'),
@@ -59,9 +95,11 @@ class DashboardController extends Controller
             ->groupBy('bulan')
             ->orderByRaw('MIN(tanggal)')
             ->get();
+            
+        // Catatan: Jika ingin chart yang menggabungkan SEMUA transaksi (KasRT, Sampah, Jimpitan), kueri harus menggunakan UNION ALL pada semua tabel transaksi sebelum melakukan GROUP BY.
 
         /**
-         * 4️⃣ REKAP KAS SEMUA WARGA
+         * 4️⃣ REKAP KAS SEMUA WARGA (Tidak diubah, tetap fokus pada Kas Warga/Arisan)
          */
         $rekapKasWarga = Warga::select(
             'warga.id',
@@ -84,7 +122,7 @@ class DashboardController extends Controller
             ->get();
 
         /**
-         * 5️⃣ STATUS ARISAN (PAKAI periode_warga, BUKAN giliran_arisan)
+         * 5️⃣ STATUS ARISAN (Tidak diubah)
          */
         if ($periode) {
             $data = PeriodeWarga::with('warga')
@@ -105,16 +143,23 @@ class DashboardController extends Controller
         return response()->json([
             'message' => 'Ringkasan dashboard berhasil diambil',
             'periode' => [
-                'from' => $from,
-                'to'   => $to,
+                'from' => $from->toDateString(),
+                'to'   => $to->toDateString(),
                 'nama' => $periode?->nama,
             ],
             'data' => [
                 'kas_total' => [
-                    'pemasukan' => (int) $totalPemasukanKas,
-                    'pengeluaran' => (int) $totalPengeluaranKas,
+                    'pemasukan_kas_rt' => (int) $totalPemasukanKasRT,
+                    'pengeluaran_kas_rt' => (int) $totalPengeluaranKasRT,
+                    'pemasukan_kas_warga' => (int) $totalPemasukanKasWarga,
                     'pemasukan_arisan' => (int) $totalSetoranArisan,
-                    'saldo' => (int) $saldo,
+                    'pemasukan_sampah' => (int) $totalPemasukanSampah,
+                    'pengeluaran_sampah' => (int) $totalPengeluaranSampah,
+                    'pemasukan_jimpitan' => (int) $totalPemasukanJimpitan,
+                    'pengeluaran_jimpitan' => (int) $totalPengeluaranJimpitan,
+                    'total_pemasukan_semua' => (int) $totalPemasukan,
+                    'total_pengeluaran_semua' => (int) $totalPengeluaran,
+                    'saldo_akhir_semua' => (int) $saldoAkhir,
                 ],
                 'chart_keuangan' => $chartKeuangan,
                 'rekap_kas_warga' => $rekapKasWarga,

@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -17,101 +18,73 @@ class ArisanTransactionController extends Controller
     /**
      * Helper function untuk mendapatkan data rekapitulasi Arisan (Digunakan oleh rekap dan exportRekap).
      */
-    private function getRekapData(Request $request, $isPaginated = true)
+    private function getRekapData(Request $request)
     {
-        // Validasi request
         $request->validate([
             'periode_id' => 'nullable|exists:periode,id',
-            'year' => 'nullable|digits:4',
-            'page' => 'nullable|integer|min:1',
-            'q' => 'nullable|string',
-            'rt' => 'nullable|string',
-            'from' => 'nullable|date',
-            'to' => 'nullable|date',
-            'min' => 'nullable|numeric|min:0',
-            'max' => 'nullable|numeric|min:0',
+            'year'       => 'nullable|digits:4',
+            'page'       => 'nullable|integer|min:1',
+            'q'          => 'nullable|string',
+            'rt'         => 'nullable|string',
+            'from'       => 'nullable|date',
+            'to'         => 'nullable|date',
+            'min'        => 'nullable|numeric|min:0',
+            'max'        => 'nullable|numeric|min:0',
         ]);
 
-        // ============================================================
-        // 🔹 Tentukan PERIODE berdasarkan periode_id / year / fallback
-        // ============================================================
+        // ============================
+        // Tentukan Periode
+        // ============================
         $periode = null;
 
         if ($request->filled('periode_id')) {
-
-            // --- Jika kirim periode_id ---
             $periode = Periode::find($request->periode_id);
             if (!$periode) {
-                return [
-                    'error' => true,
-                    'message' => 'Periode tidak ditemukan.',
-                    'code' => 404
-                ];
+                return ['error' => true, 'message' => 'Periode tidak ditemukan', 'code' => 404];
             }
         } elseif (!$request->filled('year')) {
-
-            // --- Jika tidak kirim periode_id dan TIDAK kirim year → fallback ---
+            // fallback → periode terbaru
             $periode = Periode::orderByDesc('tanggal_mulai')->first();
-
             if (!$periode) {
-                return [
-                    'error' => true,
-                    'message' => 'Tidak ada periode tersedia.',
-                    'code' => 404
-                ];
+                return ['error' => true, 'message' => 'Tidak ada periode tersedia', 'code' => 404];
             }
         }
 
-        // ============================================================
-        // 🔹 Jika periode ditentukan (periode_id atau fallback)
-        // ============================================================
         if ($periode) {
             $startDate = Carbon::parse($periode->tanggal_mulai)->startOfDay();
             $endDate   = Carbon::parse($periode->tanggal_selesai)->endOfDay();
             $periodeNama = $periode->nama;
             $periodeId   = $periode->id;
-            $nominalArisan = $periode->nominal ?? 0;
-        }
-        // ============================================================
-        // 🔹 Jika year dikirim (tanpa periode_id)
-        // ============================================================
-        elseif ($request->filled('year')) {
-
+            $nominal     = $periode->nominal ?? 0;
+        } elseif ($request->filled('year')) {
             $year = $request->year;
             $startDate = Carbon::create($year, 1, 1)->startOfDay();
             $endDate   = Carbon::create($year, 12, 31)->endOfDay();
             $periodeNama = "Tahun $year";
             $periodeId = null;
-            $nominalArisan = 0;
-        } else {
-            return [
-                'error' => true,
-                'message' => 'Harus mengirim periode_id atau year (atau fallback gagal)',
-                'code' => 422
-            ];
+            $nominal = 0;
         }
 
-        // ============================================================
-        // 🗓️ Generate tanggal interval (14 hari)
-        // ============================================================
+        // ============================
+        // Generate interval tanggal 14 hari
+        // ============================
         $dates = collect();
         $period = CarbonPeriod::create($startDate, '14 days', $endDate);
-        foreach ($period as $date) {
-            $dates->push($date->toDateString());
+        foreach ($period as $d) {
+            $dates->push($d->toDateString());
         }
 
-        // ============================================================
-        // 🔹 Query utama
-        // ============================================================
-        $rawData = DB::table('warga')
+        // ============================
+        // Query data transaksi
+        // ============================
+        $raw = DB::table('warga')
             ->select(
                 'warga.id as warga_id',
                 'warga.nama',
                 'warga.rt',
                 'arisan_transactions.tanggal',
                 'arisan_transactions.status',
-                'arisan_transactions.jumlah',
-                'pw.status_arisan'
+                'arisan_transactions.jumlah'
             )
             ->leftJoin('arisan_transactions', function ($join) use ($periodeId, $dates) {
                 $join->on('warga.id', '=', 'arisan_transactions.warga_id')
@@ -119,15 +92,6 @@ class ArisanTransactionController extends Controller
 
                 if ($periodeId) {
                     $join->where('arisan_transactions.periode_id', $periodeId);
-                }
-            })
-            ->leftJoin('periode_warga as pw', function ($join) use ($periodeId) {
-                $join->on('warga.id', '=', 'pw.warga_id');
-
-                if ($periodeId) {
-                    $join->where('pw.periode_id', $periodeId);
-                } else {
-                    $join->whereNull('pw.periode_id');
                 }
             })
             ->when($request->q, fn($q) => $q->where('warga.nama', 'like', "%{$request->q}%"))
@@ -139,100 +103,98 @@ class ArisanTransactionController extends Controller
                 fn($q) => $q->whereBetween('arisan_transactions.tanggal', [$request->from, $request->to])
             )
             ->orderBy('warga.rt')
-            ->orderBy('warga.nama');
+            ->orderBy('warga.nama')
+            ->get();
 
-        // ============================================================
-        // 🔹 Pagination / Non-pagination
-        // ============================================================
-        $data = $isPaginated
-            ? $rawData->paginate(10)
-            : $rawData->get();
-
-        // ============================================================
-        // 🔹 Return final response
-        // ============================================================
         return [
-            'error' => false,
-            'data' => $data,
-            'dates' => $dates,
-            'periodeNama' => $periodeNama,
-            'periodeId' => $periodeId,
-            'nominalArisan' => $nominalArisan,
+            'error'        => false,
+            'data'         => $raw,
+            'dates'        => $dates,
+            'periodeNama'  => $periodeNama,
+            'periodeId'    => $periodeId,
+            'nominal'      => $nominal,
             'filters' => [
                 'periode_id' => $periodeId,
-                'year' => $request->year,
-                'rt' => $request->rt,
-                'q' => $request->q,
-                'from' => $request->from,
-                'to' => $request->to,
-                'min' => $request->min,
-                'max' => $request->max,
-            ],
+                'year'       => $request->year,
+                'rt'         => $request->rt,
+                'q'          => $request->q,
+                'from'       => $request->from,
+                'to'         => $request->to,
+                'min'        => $request->min,
+                'max'        => $request->max,
+            ]
         ];
     }
 
-
+    /**
+     * Rekap Arisan (disamakan struktur dengan KasWargaController)
+     */
     public function rekap(Request $request)
     {
-        // Panggil getRekapData untuk mendapatkan data dan filter
-        $result = $this->getRekapData($request, true);
+        $result = $this->getRekapData($request);
 
         if ($result['error']) {
             return response()->json(['message' => $result['message']], $result['code']);
         }
 
-        // Ambil data yang sudah dipaginasi dari hasil
-        $paginatedData = $result['data'];
+        $raw = collect($result['data']);
 
-        // Re-format data agar sesuai dengan struktur yang diharapkan (grouping)
-        // Karena data sudah dipaginasi, kita hanya memproses data di halaman ini.
-        $groupedData = $paginatedData->getCollection()->groupBy('warga_id')->map(function ($transactions) use ($result) {
+        // ============================
+        // GROUP PER WARGA
+        // ============================
+        $grouped = $raw->groupBy('warga_id')->map(function ($items) use ($result) {
 
-            // Perbaikan: Menggunakan first() method dengan tanda kurung
-            $warga = $transactions->first();
-            $totalSetoran = 0;
+            $warga = $items->first();
+            $total = 0;
             $paymentStatus = [];
 
             foreach ($result['dates'] as $date) {
-                // Perbaikan: Menggunakan firstWhere() method dengan tanda kurung
-                $trx = $transactions->firstWhere('tanggal', $date);
+                $trx = $items->firstWhere('tanggal', $date);
+
                 if ($trx) {
-                    $totalSetoran += $trx->jumlah;
+                    $total += $trx->jumlah;
                     $paymentStatus[$date] = [
                         'status' => $trx->status,
-                        'jumlah' => $trx->jumlah,
+                        'jumlah' => $trx->jumlah
                     ];
                 } else {
                     $paymentStatus[$date] = [
                         'status' => 'belum_bayar',
-                        'jumlah' => 0,
+                        'jumlah' => 0
                     ];
                 }
             }
 
-            // Ganti key 'id' dengan 'warga_id' agar konsisten
-            $warga->warga_id = $warga->warga_id ?? $warga->id;
-
             return [
-                'warga_id' => $warga->warga_id,
-                'nama' => $warga->nama,
-                'rt' => $warga->rt,
-                'status_arisan' => $warga->status_arisan,
-                'total_setoran' => $totalSetoran,
-                'payment_status' => $paymentStatus,
+                'warga_id'       => $warga->warga_id,
+                'nama'          => $warga->nama,
+                'rt'            => $warga->rt,
+                'total_setoran' => $total,
+                'payment_status' => $paymentStatus
             ];
         })->values();
 
-        // Ganti collection di paginator dengan data yang sudah di-grouping
-        $paginatedData->setCollection($groupedData);
+        // ============================
+        // PAGINATION (PER WARGA)
+        // ============================
+        $page    = $request->get('page', 1);
+        $perPage = 10;
+
+        $paginated = new LengthAwarePaginator(
+            $grouped->slice(($page - 1) * $perPage, $perPage)->values(),
+            $grouped->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
 
         return response()->json([
             'message' => 'Rekap arisan berhasil diambil',
             'periode' => $result['periodeNama'],
-            'nominal_arisan' => $result['nominalArisan'],
-            'dates' => $result['dates'],
+            'nominal_arisan' => $result['nominal'],
+            'dates'   => $result['dates'],
             'filters' => $result['filters'],
-            'data' => $paginatedData,
+            'data'    => $paginated,
         ]);
     }
 
@@ -252,7 +214,7 @@ class ArisanTransactionController extends Controller
 
             // Ambil nominal default dari tabel periode
             $periode = Periode::find($request->periode_id);
-            $defaultJumlah = $periode->nominal; 
+            $defaultJumlah = $periode->nominal;
 
             foreach ($request->updates as $item) {
 
