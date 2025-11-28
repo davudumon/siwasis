@@ -258,7 +258,7 @@ class ArisanTransactionController extends Controller
     public function exportRekap(Request $request)
     {
         // 1. Ambil Data (tanpa paginasi)
-        $result = $this->getRekapData($request, false);
+        $result = $this->getRekapData($request);
 
         if ($result['error']) {
             return response()->json(['message' => $result['message']], $result['code']);

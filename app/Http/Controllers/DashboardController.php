@@ -8,10 +8,10 @@ use App\Models\KasWarga;
 use App\Models\Periode;
 use App\Models\PeriodeWarga;
 use App\Models\SampahTransaction;
-use App\Models\Warga; // 👈 ASUMSI MODEL
+use App\Models\Warga;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon; // Digunakan untuk penentuan tanggal
+use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
@@ -47,18 +47,17 @@ class DashboardController extends Controller
 
         // --- KAS WARGA (HANYA Pemasukan dari iuran/setoran - asumsi 'sudah_bayar' adalah pemasukan) ---
         $totalPemasukanKasWarga = KasWarga::where('status', 'sudah_bayar')
-            ->whereDoesntHave('warga', fn($q) => $q->where('role', 'arisan')) // Exclude Arisan setoran
+            ->whereDoesntHave('warga', fn($q) => $q->where('role', 'arisan')) 
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
-        // --- ARISAN (HANYA Pemasukan dari setoran/iuran - asumsi role 'arisan' dan status 'sudah_bayar') ---
+        // --- ARISAN (HANYA Pemasukan dari setoran/iuran) ---
         $totalSetoranArisan = KasWarga::where('status', 'sudah_bayar')
             ->whereHas('warga', fn($q) => $q->where('role', 'arisan'))
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
 
         // --- SAMPAH (Pemasukan & Pengeluaran) ---
-        // 2️⃣ Asumsi perhitungan untuk Sampah
         $totalPemasukanSampah = SampahTransaction::where('tipe', 'pemasukan')
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
@@ -68,7 +67,6 @@ class DashboardController extends Controller
             ->sum('jumlah');
 
         // --- JIMPITAN (Pemasukan & Pengeluaran) ---
-        // 2️⃣ Asumsi perhitungan untuk Jimpitan
         $totalPemasukanJimpitan = JimpitanTransaction::where('tipe', 'pemasukan')
             ->whereBetween('tanggal', [$from, $to])
             ->sum('jumlah');
@@ -79,27 +77,111 @@ class DashboardController extends Controller
 
         // --- PERHITUNGAN TOTAL ---
         $totalPemasukan = $totalPemasukanKasRT + $totalPemasukanKasWarga + $totalSetoranArisan + $totalPemasukanSampah + $totalPemasukanJimpitan;
-        $totalPengeluaran = $totalPengeluaranKasRT + $totalPengeluaranSampah + $totalPengeluaranJimpitan; // KasWarga dan Arisan tidak memiliki Pengeluaran di sini (diasumsikan pengeluaran Arisan/Kas Warga diwakili oleh KasRT/lainnya)
+        $totalPengeluaran = $totalPengeluaranKasRT + $totalPengeluaranSampah + $totalPengeluaranJimpitan; 
 
-        $saldoAkhir = $totalPemasukan - $totalPengeluaran; // 👈 Saldo Akhir yang DITAMBAHKAN
+        $saldoAkhir = $totalPemasukan - $totalPengeluaran;
+
+        // --- KAS WARGA DAN ARISAN UNTUK CHART ---
+        // Dipetakan agar memiliki kolom 'tipe' untuk di-merge
+        $kasWargaChart = KasWarga::select('tanggal', 'jumlah')
+            ->where('status', 'sudah_bayar')
+            ->whereBetween('tanggal', [$from, $to])
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'tanggal' => $item->tanggal,
+                    'tipe' => 'pemasukan',
+                    'jumlah' => $item->jumlah,
+                ];
+            });
 
         /**
-         * 3️⃣ CHART PEMASUKAN VS PENGELUARAN PER BULAN (Hanya Kas RT - Jika ingin gabungan, perlu kueri yang lebih kompleks)
+         * 3️⃣ CHART PEMASUKAN VS PENGELUARAN PER BULAN (GABUNGAN SEMUA)
          */
-        $chartKeuangan = KasRT::select(
-            DB::raw('DATE_FORMAT(tanggal, "%M %Y") as bulan'),
-            DB::raw('SUM(CASE WHEN tipe = "pemasukan" THEN jumlah ELSE 0 END) as total_pemasukan'),
-            DB::raw('SUM(CASE WHEN tipe = "pengeluaran" THEN jumlah ELSE 0 END) as total_pengeluaran')
-        )
-            ->whereBetween('tanggal', [$from, $to])
-            ->groupBy('bulan')
-            ->orderByRaw('MIN(tanggal)')
+        
+        // 1. Ambil data dari KasRT, Sampah, dan Jimpitan (sudah punya kolom tipe)
+        $kasRTQuery = DB::table('kas_rt')
+            ->select('tanggal', 'tipe', 'jumlah')
+            ->whereBetween('tanggal', [$from, $to]);
+
+        $sampahQuery = DB::table('sampah_transactions')
+            ->select('tanggal', 'tipe', 'jumlah')
+            ->whereBetween('tanggal', [$from, $to]);
+
+        $jimpitanQuery = DB::table('jimpitan_transactions')
+            ->select('tanggal', 'tipe', 'jumlah')
+            ->whereBetween('tanggal', [$from, $to]);
+            
+        // 2. Gabungkan data KasRT, Sampah, dan Jimpitan
+        $allTransactions = $kasRTQuery
+            ->unionAll($sampahQuery)
+            ->unionAll($jimpitanQuery)
             ->get();
             
-        // Catatan: Jika ingin chart yang menggabungkan SEMUA transaksi (KasRT, Sampah, Jimpitan), kueri harus menggunakan UNION ALL pada semua tabel transaksi sebelum melakukan GROUP BY.
+        // 3. Tambahkan data KasWarga (Arisan + Non-Arisan)
+        $allTransactions = $allTransactions->merge($kasWargaChart);
+
+        // 4. Lakukan pengelompokan (grouping) dan agregasi di sisi PHP
+        $chartDataGrouped = $allTransactions
+            ->groupBy(function ($item) {
+                // PERBAIKAN: Menggunakan is_object() untuk memilih cara akses yang benar (objek/array)
+                $tanggal = is_object($item) ? $item->tanggal : $item['tanggal'];
+                return Carbon::parse($tanggal)->isoFormat('MMMM YYYY');
+            })
+            ->map(function ($transactions, $bulan) {
+                // Gunakan custom sum closure untuk menangani campuran objek dan array
+                
+                // Total Pemasukan
+                $totalPemasukan = $transactions->sum(function ($transaction) {
+                    $tipe = is_object($transaction) ? $transaction->tipe : $transaction['tipe'];
+                    $jumlah = is_object($transaction) ? $transaction->jumlah : $transaction['jumlah'];
+                    return $tipe === 'pemasukan' ? $jumlah : 0;
+                });
+                
+                // Total Pengeluaran
+                $totalPengeluaran = $transactions->sum(function ($transaction) {
+                    $tipe = is_object($transaction) ? $transaction->tipe : $transaction['tipe'];
+                    $jumlah = is_object($transaction) ? $transaction->jumlah : $transaction['jumlah'];
+                    return $tipe === 'pengeluaran' ? $jumlah : 0;
+                });
+                
+                return [
+                    'bulan' => $bulan,
+                    'total_pemasukan' => (int) $totalPemasukan,
+                    'total_pengeluaran' => (int) $totalPengeluaran,
+                ];
+            });
+
+        // 5. GENERATE SEMUA BULAN DALAM RENTANG WAKTU (termasuk yang bernilai 0)
+        $allMonthsData = collect();
+        $start = $from->copy()->startOfMonth();
+        $end = $to->copy()->endOfMonth();
+        
+        while ($start->lte($end)) {
+            $monthKey = $start->isoFormat('MMMM YYYY');
+            
+            // Template data bulan
+            $monthData = [
+                'bulan' => $monthKey,
+                'total_pemasukan' => 0,
+                'total_pengeluaran' => 0,
+            ];
+            
+            // Gabungkan dengan data transaksi yang sudah dihitung
+            if ($chartDataGrouped->has($monthKey)) {
+                $monthData = $chartDataGrouped->get($monthKey);
+            }
+            
+            $allMonthsData->push($monthData);
+            
+            // Pindah ke bulan berikutnya
+            $start->addMonthNoOverflow();
+        }
+        
+        $chartKeuangan = $allMonthsData->values();
 
         /**
-         * 4️⃣ REKAP KAS SEMUA WARGA (Tidak diubah, tetap fokus pada Kas Warga/Arisan)
+         * 4️⃣ REKAP KAS SEMUA WARGA
          */
         $rekapKasWarga = Warga::select(
             'warga.id',
@@ -122,7 +204,7 @@ class DashboardController extends Controller
             ->get();
 
         /**
-         * 5️⃣ STATUS ARISAN (Tidak diubah)
+         * 5️⃣ STATUS ARISAN
          */
         if ($periode) {
             $data = PeriodeWarga::with('warga')
