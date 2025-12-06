@@ -267,7 +267,7 @@ class ArisanTransactionController extends Controller
         $allTransactions = $result['data'];
         $dates = $result['dates'];
         $periodeNama = $result['periodeNama'];
-        $nominalArisan = $result['nominalArisan'];
+        $nominalArisan = $result['nominal'];
 
         // 2. Re-organisasi data ke format Rekapitulasi per Warga
         $rekapData = $allTransactions->groupBy('warga_id')->map(function ($transactions) use ($dates) {
@@ -302,8 +302,6 @@ class ArisanTransactionController extends Controller
                 'id' => $warga->warga_id,
                 'nama' => $warga->nama,
                 'rt' => $warga->rt,
-                // Kolom yang diminta: status_arisan (pemenang arisan)
-                'status_arisan' => $warga->status_arisan === 'sudah' ? 'Pemenang' : 'Belum',
                 'total_setoran' => $totalSetoran,
                 'payment_status' => $paymentStatus,
             ];
@@ -336,7 +334,6 @@ class ArisanTransactionController extends Controller
                 $row = [
                     $data['nama'],
                     $data['rt'],
-                    $data['status_arisan'],
                     $data['total_setoran'],
                 ];
 

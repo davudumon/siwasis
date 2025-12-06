@@ -8,8 +8,8 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\WargaController;
 use App\Http\Controllers\YoutubeLinkController;
 use App\Http\Controllers\GiliranArisanController;
+use App\Http\Controllers\HeroImageController;
 use App\Http\Controllers\KasWargaController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SampahTransactionController;
 use App\Http\Controllers\JimpitanTransactionController;
@@ -29,6 +29,11 @@ Route::prefix('periode')->group(function () {
     Route::get('/{id}', [PeriodeController::class, 'show']);
 });
 
+// Rute Hero Image Publik
+Route::prefix('hero-image')->group(function () {
+    Route::get('/', [HeroImageController::class, 'index']);
+    Route::post('/', [HeroImageController::class, 'update']);
+});
 
 // Rute Publik lainnya (Dipindahkan dari blok auth:sanctum)
 
@@ -98,7 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ADMINS
     Route::get('/admins', [SettingsController::class, 'index']);
     Route::post('/admins', [SettingsController::class, 'store']);
-    Route::delete('/admins/{id}', [SettingsController::class, 'destroy']);
+    Route::delete('/admins', [SettingsController::class, 'destroyMe']);
 
     // ARTIKEL
     Route::post('/articles', [ArticleController::class, 'store']);     // Buat artikel
@@ -128,14 +133,14 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::prefix('arisan/spin')->controller(GiliranArisanController::class)->group(function () {
-        Route::get('candidates', 'getBelumDapat'); // Daftar kandidat spin hanya untuk admin
+        Route::get('candidates', 'getBelumDapat');
         Route::post('draw', 'store');
     });
 
     // KAS
     Route::prefix('kas/rekap')->controller(KasWargaController::class)->group(function () {
         Route::post('save', 'rekapSave');
-        Route::get('export', 'export');
+        Route::get('export', 'exportRekap');
     });
 
     Route::prefix('kas/laporan')->controller(KasRtController::class)->group(function () {

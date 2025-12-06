@@ -53,7 +53,7 @@ class SettingsController extends Controller
      */
     public function destroyMe()
     {
-        $admin = Admin::user();
+        $admin = request()->user();
 
         if (!$admin) {
             return response()->json([
