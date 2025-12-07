@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\KasRT;
+use App\Models\Periode;
+use Carbon\Carbon;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -17,35 +19,58 @@ class KasRtController extends Controller
     {
         $query = KasRT::query();
 
-        // 🔹 Filter berdasarkan tahun
-        if ($request->filled('year')) {
-            $query->whereYear('tanggal', $request->year);
+        // =====================================================
+        // 🔹 Ambil Periode berdasarkan periode_id
+        // =====================================================
+        $periode = null;
+        if ($request->filled('periode_id')) {
+            $periode = Periode::find($request->periode_id);
+        }
+        if (!$periode) {
+            $periode = Periode::latest()->first(); // default periode terakhir
         }
 
-        // 🔹 Filter berdasarkan tanggal (range atau tunggal)
+        // =====================================================
+        // 🔹 Tentukan rentang tanggal default berdasarkan periode
+        //    (bisa ditimpa oleh from & to manual)
+        // =====================================================
+        $from = $request->from
+            ? Carbon::parse($request->from)->startOfDay()
+            : ($periode?->tanggal_mulai ? Carbon::parse($periode->tanggal_mulai)->startOfDay() : now()->startOfYear());
+
+        $to = $request->to
+            ? Carbon::parse($request->to)->endOfDay()
+            : ($periode?->tanggal_selesai ? Carbon::parse($periode->tanggal_selesai)->endOfDay() : now()->endOfYear());
+
+        // =====================================================
+        // 🔹 Filter tanggal (range atau tanggal tunggal)
+        // =====================================================
         if ($request->filled('from') && $request->filled('to')) {
-            $query->whereBetween('tanggal', [$request->from, $request->to]);
+            $query->whereBetween('tanggal', [$from, $to]);
         } elseif ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
+        } else {
+            $query->whereBetween('tanggal', [$from, $to]);
         }
 
+        // =====================================================
         // 🔹 Filter tipe pemasukan/pengeluaran
+        // =====================================================
         if ($request->filled('tipe')) {
             $query->where('tipe', $request->tipe);
         }
 
-        // 🔹 Filter q (search by keterangan)
+        // =====================================================
+        // 🔹 Search by keterangan
+        // =====================================================
         if ($request->filled('q')) {
-            $searchTerm = '%' . $request->q . '%';
-            $query->where('keterangan', 'like', $searchTerm);
+            $query->where('keterangan', 'like', '%' . $request->q . '%');
         }
 
-        // 🔹 Tentukan jumlah data per halaman
+        // =====================================================
+        // 🔹 Pagination
+        // =====================================================
         $perPage = $request->get('per_page', 10);
-
-        // =====================================================
-        // 🔹 Ambil data pagination (DESC sesuai tampilan user)
-        // =====================================================
         $kas = $query->orderBy('tanggal', 'desc')->paginate($perPage);
 
         // =====================================================
@@ -60,13 +85,17 @@ class KasRtController extends Controller
             $item->saldo_sementara = $saldo;
         }
 
-        // lalu balik lagi ke DESC
         $finalItems = $sorted->sortByDesc('tanggal')->values();
 
         return response()->json([
             'message' => 'Data kas RT berhasil diambil',
+            'periode' => [
+                'id'   => $periode?->id,
+                'nama' => $periode?->nama,
+                'from' => $from->toDateString(),
+                'to'   => $to->toDateString(),
+            ],
             'filter' => [
-                'year' => $request->year ?? null,
                 'from' => $request->from ?? null,
                 'to' => $request->to ?? null,
                 'tanggal' => $request->tanggal ?? null,
@@ -82,6 +111,7 @@ class KasRtController extends Controller
             'data' => $finalItems,
         ]);
     }
+
 
 
 

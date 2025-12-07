@@ -85,6 +85,8 @@ class WargaController extends Controller
             return $item;
         });
 
+        $listRT = Warga::select('rt')->distinct()->pluck('rt');
+
         // 🔹 Response JSON
         return response()->json([
             'message' => 'Data warga berhasil diambil',
@@ -98,6 +100,7 @@ class WargaController extends Controller
                 'kas_max' => $request->kas_max ?? null,
                 'arisan_status' => $request->arisan_status ?? 'semua',
             ],
+            'list_rt' => $listRT,
             'pagination' => [
                 'current_page' => $warga->currentPage(),
                 'per_page' => $warga->perPage(),

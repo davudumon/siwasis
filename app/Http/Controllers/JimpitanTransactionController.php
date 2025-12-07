@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\JimpitanTransaction;
+use App\Models\Periode;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class JimpitanTransactionController extends Controller
@@ -15,69 +18,101 @@ class JimpitanTransactionController extends Controller
      */
     public function index(Request $request)
     {
-        // 🔹 Ambil parameter paginasi
+        // Ambil parameter paginasi
         $perPage = $request->input('per_page', 10);
 
-        // 🔹 Query dasar
-        $query = JimpitanTransaction::with('admin')->orderBy('tanggal', 'desc');
-
-        // 🔹 Filter berdasarkan 'tipe'
-        if ($request->filled('tipe')) {
-            $query->where('tipe', $request->tipe);
+        // =====================================================
+        // 🔹 Ambil Periode berdasarkan periode_id
+        // =====================================================
+        $periode = null;
+        if ($request->filled('periode_id')) {
+            $periode = Periode::find($request->periode_id);
+        }
+        if (!$periode) {
+            $periode = Periode::latest()->first(); // default periode terakhir
         }
 
-        // 🔹 Filter berdasarkan 'tanggal'
+        // =====================================================
+        // 🔹 Tentukan range tanggal default berdasarkan periode
+        // =====================================================
+        $from = $request->from
+            ? Carbon::parse($request->from)->startOfDay()
+            : ($periode?->tanggal_mulai ? Carbon::parse($periode->tanggal_mulai)->startOfDay() : now()->startOfYear());
+
+        $to = $request->to
+            ? Carbon::parse($request->to)->endOfDay()
+            : ($periode?->tanggal_selesai ? Carbon::parse($periode->tanggal_selesai)->endOfDay() : now()->endOfYear());
+
+        // =====================================================
+        // 🔹 Query utama + default range periode
+        // =====================================================
+        $query = JimpitanTransaction::with('admin')->whereBetween('tanggal', [$from, $to]);
+
+        // Filter tanggal tunggal
         if ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
 
-        // 🔹 Filter berdasarkan 'year'
-        if ($request->filled('year')) {
-            $query->whereYear('tanggal', $request->year);
+        // Filter tipe
+        if ($request->filled('tipe')) {
+            $query->where('tipe', $request->tipe);
         }
 
-        // 🔹 Filter pencarian (keterangan)
+        // Search
         if ($request->filled('q')) {
             $query->where('keterangan', 'like', '%' . $request->q . '%');
         }
 
-        // ======================================================
-        // 🔹 Ambil data paginated (DESC untuk tampilan)
-        // ======================================================
-        $transactions = $query->paginate($perPage);
+        // Ambil data paginated (DESC untuk tampilan)
+        $transactions = $query->orderBy('tanggal', 'desc')->paginate($perPage);
 
         // ======================================================
-        // 🔹 Hitung saldo sementara (HANYA dalam halaman)
+        // 🔥 Hitung SALDO filter + saldo sementara (full filtered)
         // ======================================================
-        $items = collect($transactions->items());
-
-        // Urut ASC untuk menghitung saldo berurutan
-        $sortedAsc = $items->sortBy('tanggal');
+        $filteredAll = $query->clone()->orderBy('tanggal', 'asc')->get();
 
         $saldo = 0;
+        $mapSaldo = [];
 
-        foreach ($sortedAsc as $item) {
-            if ($item->tipe === 'masuk' || $item->tipe === 'pemasukan') {
-                $saldo += $item->jumlah;
-            } else {
-                $saldo -= $item->jumlah;
-            }
+        foreach ($filteredAll as $item) {
+            $saldo += ($item->tipe === 'masuk' || $item->tipe === 'pemasukan')
+                ? $item->jumlah
+                : -$item->jumlah;
 
-            $item->saldo_sementara = $saldo;
+            $mapSaldo[$item->id] = $saldo;
         }
 
-        // Kembalikan ke DESC (seperti tampilan normal)
-        $finalItems = $sortedAsc->sortByDesc('tanggal')->values();
-
-        // Total saldo global
-        $totalSaldo = $this->calculateTotalBalance() ?? 0;
+        // Isi saldo sementara pada hasil pagination
+        $finalItems = collect($transactions->items())->map(function ($trx) use ($mapSaldo) {
+            $trx->saldo_sementara = $mapSaldo[$trx->id] ?? 0;
+            return $trx;
+        });
 
         // ======================================================
-        // 🔹 Return response
+        // 🔥 Hitung total saldo global
+        // ======================================================
+        $totalSaldo = JimpitanTransaction::sum(DB::raw("
+        CASE 
+            WHEN tipe = 'masuk' OR tipe = 'pemasukan' THEN jumlah 
+            ELSE -jumlah 
+        END
+    "));
+
+        // ======================================================
+        // 🔥 Return response
         // ======================================================
         return response()->json([
             'message' => 'Data transaksi jimpitan berhasil diambil',
+
+            'periode' => [
+                'id'   => $periode?->id,
+                'nama' => $periode?->nama,
+                'from' => $from->toDateString(),
+                'to'   => $to->toDateString(),
+            ],
+
             'saldo_akhir_total' => $totalSaldo,
+            'saldo_filter' => $saldo, // saldo hasil filter
 
             'pagination' => [
                 'current_page' => $transactions->currentPage(),
@@ -87,8 +122,9 @@ class JimpitanTransactionController extends Controller
             ],
 
             'filters' => [
+                'from' => $request->from ?? null,
+                'to' => $request->to ?? null,
                 'tanggal' => $request->tanggal ?? null,
-                'year' => $request->year ?? null,
                 'tipe' => $request->tipe ?? null,
                 'q' => $request->q ?? null,
             ],
@@ -96,6 +132,7 @@ class JimpitanTransactionController extends Controller
             'data' => $finalItems,
         ]);
     }
+
 
 
 
