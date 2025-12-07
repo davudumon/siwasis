@@ -10,10 +10,12 @@ class HeroImageController extends Controller
 
     public function index()
     {
+        $path = config('hero.image');
         return response()->json([
-            'image_url' => asset('storage/' . config('hero.image'))
+            'image_url' => config('app.url') . '/storage/' . $path
         ]);
     }
+
 
     public function update(Request $request)
     {

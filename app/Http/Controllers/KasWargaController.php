@@ -62,7 +62,7 @@ class KasWargaController extends Controller
             $endDate   = Carbon::parse($periode->tanggal_selesai)->endOfDay();
             $periodeNama = $periode->nama;
             $periodeId   = $periode->id;
-            $nominalKas  = $periode->nominal_kas ?? 0; // pastikan nama kolomnya benar
+            $nominalKas  = $periode->nominal ?? 0; 
         } elseif ($request->filled('year')) {
             $year = $request->year;
             $startDate = Carbon::create($year, 1, 1)->startOfDay();
