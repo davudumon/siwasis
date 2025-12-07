@@ -55,6 +55,13 @@ class SampahTransactionController extends Controller
             $query->where('tipe', $request->tipe);
         }
 
+        if ($request->filled('min')) {
+            $query->where('jumlah', '>=', $request->min);
+        }
+        if ($request->filled('max')) {
+            $query->where('jumlah', '<=', $request->max);
+        }
+
         // Pencarian
         if ($request->filled('q')) {
             $query->where('title', 'like', '%' . $request->q . '%');
@@ -126,11 +133,14 @@ class SampahTransactionController extends Controller
             ],
 
             'filters' => [
-                'from' => $request->from ?? null,
-                'to' => $request->to ?? null,
-                'tanggal' => $request->tanggal ?? null,
-                'tipe' => $request->tipe ?? null,
-                'q' => $request->q ?? null,
+                'periode_id' => $periode?->id,
+                'from'       => $request->from ?? null,
+                'to'         => $request->to ?? null,
+                'tanggal'    => $request->tanggal ?? null,
+                'tipe'       => $request->tipe ?? null,
+                'min'        => $request->min ?? null,
+                'max'        => $request->max ?? null,
+                'q'          => $request->q ?? null,
             ],
 
             'data' => $dataWithSaldo,

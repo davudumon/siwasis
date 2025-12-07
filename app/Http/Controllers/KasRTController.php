@@ -60,6 +60,13 @@ class KasRtController extends Controller
             $query->where('tipe', $request->tipe);
         }
 
+        if ($request->filled('min')) {
+            $query->where('jumlah', '>=', $request->min);
+        }
+        if ($request->filled('max')) {
+            $query->where('jumlah', '<=', $request->max);
+        }
+
         // =====================================================
         // 🔹 Search by keterangan
         // =====================================================
@@ -95,12 +102,15 @@ class KasRtController extends Controller
                 'from' => $from->toDateString(),
                 'to'   => $to->toDateString(),
             ],
-            'filter' => [
-                'from' => $request->from ?? null,
-                'to' => $request->to ?? null,
-                'tanggal' => $request->tanggal ?? null,
-                'tipe' => $request->tipe ?? null,
-                'q' => $request->q ?? null,
+            'filters' => [
+                'periode_id' => $periode?->id,
+                'from'       => $request->from ?? null,
+                'to'         => $request->to ?? null,
+                'tanggal'    => $request->tanggal ?? null,
+                'tipe'       => $request->tipe ?? null,
+                'min'        => $request->min ?? null,
+                'max'        => $request->max ?? null,
+                'q'          => $request->q ?? null,
             ],
             'pagination' => [
                 'current_page' => $kas->currentPage(),
@@ -111,10 +121,6 @@ class KasRtController extends Controller
             'data' => $finalItems,
         ]);
     }
-
-
-
-
 
     /**
      * POST /api/kas-rt

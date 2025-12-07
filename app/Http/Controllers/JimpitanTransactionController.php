@@ -58,6 +58,13 @@ class JimpitanTransactionController extends Controller
             $query->where('tipe', $request->tipe);
         }
 
+        if ($request->filled('min')) {
+            $query->where('jumlah', '>=', $request->min);
+        }
+        if ($request->filled('max')) {
+            $query->where('jumlah', '<=', $request->max);
+        }
+
         // Search
         if ($request->filled('q')) {
             $query->where('keterangan', 'like', '%' . $request->q . '%');
@@ -112,7 +119,7 @@ class JimpitanTransactionController extends Controller
             ],
 
             'saldo_akhir_total' => $totalSaldo,
-            'saldo_filter' => $saldo, // saldo hasil filter
+            'saldo_filter' => $saldo,
 
             'pagination' => [
                 'current_page' => $transactions->currentPage(),
@@ -122,11 +129,14 @@ class JimpitanTransactionController extends Controller
             ],
 
             'filters' => [
-                'from' => $request->from ?? null,
-                'to' => $request->to ?? null,
-                'tanggal' => $request->tanggal ?? null,
-                'tipe' => $request->tipe ?? null,
-                'q' => $request->q ?? null,
+                'periode_id' => $periode?->id,
+                'from'       => $request->from ?? null,
+                'to'         => $request->to ?? null,
+                'tanggal'    => $request->tanggal ?? null,
+                'tipe'       => $request->tipe ?? null,
+                'min'        => $request->min ?? null,
+                'max'        => $request->max ?? null,
+                'q'          => $request->q ?? null,
             ],
 
             'data' => $finalItems,

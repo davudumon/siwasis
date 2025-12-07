@@ -21,23 +21,31 @@ class Warga extends Model
         'tipe_warga'
     ];
 
-    public function admin(){
+    public function admin()
+    {
         return $this->belongsTo(Admin::class);
     }
 
     public function periode()
     {
         return $this->belongsToMany(Periode::class, 'periode_warga', 'warga_id', 'periode_id')
-                    ->using(PeriodeWarga::class) // Menggunakan Model PeriodeWarga
-                    ->withPivot('status_arisan') // Mengambil kolom status_arisan dari pivot
-                    ->withTimestamps();
+            ->using(PeriodeWarga::class) // Menggunakan Model PeriodeWarga
+            ->withPivot('status_arisan') // Mengambil kolom status_arisan dari pivot
+            ->withTimestamps();
     }
 
-    public function kasTransaction(){
+    public function kasTransaction()
+    {
         return $this->hasMany(KasWarga::class);
     }
-    
-    public function arisanTransaction(){
+
+    public function arisanTransaction()
+    {
         return $this->hasMany(ArisanTransaction::class);
+    }
+
+    public function periodeWarga()
+    {
+        return $this->hasOne(PeriodeWarga::class)->where('periode_id', request('periode_id'));
     }
 }

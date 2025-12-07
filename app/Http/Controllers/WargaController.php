@@ -6,59 +6,75 @@ use App\Models\Admin;
 use App\Models\Periode;
 use App\Models\PeriodeWarga;
 use App\Models\Warga;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
 
 class WargaController extends Controller
 {
     public function index(Request $request)
     {
-        // 🔹 Ambil periode dari parameter atau fallback ke periode terbaru
+        // Ambil periode aktif atau berdasarkan periode_id
         $periodeId = $request->get('periode_id');
         $periode = $periodeId ? Periode::find($periodeId) : Periode::latest('id')->first();
 
-        // 🔥 Jika user ngasih periode tapi tidak ditemukan
         if ($periodeId && !$periode) {
             return response()->json([
-                'message' => 'Periode tidak ditemukan'
+                'message' => 'Periode tidak ditemukan',
             ], 404);
         }
 
-        // 🔹 Query dasar warga
-        $query = Warga::with(['admin'])
-            ->withSum(['kasTransaction as setoran_kas' => function ($q) {
-                $q->where('status', 'sudah_bayar');
-            }], 'jumlah')
-            ->with(['arisanTransaction' => function ($q) use ($periode) {
-                if ($periode) {
-                    $q->where('periode_id', $periode->id);
-                }
-                $q->where('status', 'sudah_bayar')->with('periode');
-            }]);
+        // ============================
+        // Buat interval tanggal 14 hari
+        // ============================
+        $startDate = Carbon::parse($periode->tanggal_mulai)->startOfDay();
+        $endDate   = Carbon::parse($periode->tanggal_selesai)->endOfDay();
 
-        // 🔹 Join ke periode_warga untuk ambil status_arisan
+        $dates = collect();
+        $period = CarbonPeriod::create($startDate, '14 days', $endDate);
+
+        foreach ($period as $d) {
+            $dates->push($d->toDateString());
+        }
+
+        // ============================
+        // Query utama Warga
+        // ============================
+        $query = Warga::with(['admin', 'periodeWarga' => function ($q) use ($periode) {
         if ($periode) {
-            $query->leftJoin('periode_warga', function ($join) use ($periode) {
-                $join->on('periode_warga.warga_id', '=', 'warga.id')
-                    ->where('periode_warga.periode_id', '=', $periode->id);
-            })->addSelect('warga.*', 'periode_warga.status_arisan');
+            $q->where('periode_id', $periode->id);
         }
+    }])
+        ->withSum(['kasTransaction as setoran_kas' => function ($q) use ($periode) {
+            if ($periode) {
+                $q->where('periode_id', $periode->id);
+            }
+            $q->where('status', 'sudah_bayar');
+            // 🔥 PERUBAHAN DISINI: Hapus ->whereIn('tanggal', $dates)
+        }], 'jumlah')
+        ->with(['arisanTransaction' => function ($q) use ($periode) {
+            if ($periode) {
+                $q->where('periode_id', $periode->id);
+            }
+            $q->where('status', 'sudah_bayar')->with('periode');
+        }]);
 
-        // 🔹 Filter RT
+        // FILTER: RT
         if ($request->filled('rt') && $request->rt !== 'semua') {
-            $query->where('warga.rt', $request->rt);
+            $query->where('rt', $request->rt);
         }
 
-        // 🔹 Filter role
+        // FILTER: ROLE
         if ($request->filled('role') && $request->role !== 'semua') {
-            $query->where('warga.role', $request->role);
+            $query->where('role', $request->role);
         }
 
-        // 🔹 Filter nama (pencarian)
+        // FILTER: Search nama
         if ($request->filled('q')) {
-            $query->where('warga.nama', 'like', '%' . $request->q . '%');
+            $query->where('nama', 'like', '%' . $request->q . '%');
         }
 
-        // 🔹 Filter kas
+        // FILTER: kas range interval
         if ($request->filled('kas_min')) {
             $query->having('setoran_kas', '>=', $request->kas_min);
         }
@@ -66,32 +82,34 @@ class WargaController extends Controller
             $query->having('setoran_kas', '<=', $request->kas_max);
         }
 
-        // 🔹 Filter status arisan
+        // FILTER: Arisan
         if ($request->filled('arisan_status') && $request->arisan_status !== 'semua') {
-            $query->where('periode_warga.status_arisan', $request->arisan_status);
+            $query->whereHas('periodeWarga', function ($q) use ($request) {
+                $q->where('status_arisan', $request->arisan_status);
+            });
         }
 
-        // 🔹 Pagination jumlah per halaman (default 10)
+        // PAGINATION
         $perPage = $request->get('per_page', 10);
+        $warga = $query->orderBy('id', 'desc')->paginate($perPage);
 
-        // 🔹 Ambil hasil dengan pagination
-        // Laravel otomatis mempertahankan semua query parameter (periode, role, rt, dll.)
-        $warga = $query->orderBy('warga.id', 'desc')->paginate($perPage);
-
-        // 🔹 Transformasi data
+        // Tambahan arisan
         $warga->getCollection()->transform(function ($item) {
-            $item->setoran_arisan = $item->arisanTransaction->sum('jumlah') ?? 0;
             $item->setoran_kas = $item->setoran_kas ?? 0;
+            $item->setoran_arisan = $item->arisanTransaction->sum('jumlah') ?? 0;
+            $item->status_arisan = $item->periodeWarga->status_arisan ?? null;
             return $item;
         });
 
+
         $listRT = Warga::select('rt')->distinct()->pluck('rt');
 
-        // 🔹 Response JSON
         return response()->json([
             'message' => 'Data warga berhasil diambil',
-            'periode_aktif' => $periode ? $periode->nama : null,
-            'periode_id' => $periode ? $periode->id : null,
+            'periode_aktif' => $periode?->nama,
+            'periode_id' => $periode?->id,
+            'list_rt' => $listRT,
+
             'filter' => [
                 'rt' => $request->rt ?? 'semua',
                 'role' => $request->role ?? 'semua',
@@ -100,16 +118,18 @@ class WargaController extends Controller
                 'kas_max' => $request->kas_max ?? null,
                 'arisan_status' => $request->arisan_status ?? 'semua',
             ],
-            'list_rt' => $listRT,
+
             'pagination' => [
                 'current_page' => $warga->currentPage(),
                 'per_page' => $warga->perPage(),
                 'total' => $warga->total(),
                 'last_page' => $warga->lastPage(),
             ],
+
             'data' => $warga->items(),
         ], 200);
     }
+
 
     public function storeKas(Request $request)
     {
