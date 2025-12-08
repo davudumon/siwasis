@@ -41,23 +41,28 @@ class WargaController extends Controller
         // Query utama Warga
         // ============================
         $query = Warga::with(['admin', 'periodeWarga' => function ($q) use ($periode) {
-        if ($periode) {
-            $q->where('periode_id', $periode->id);
-        }
-    }])
-        ->withSum(['kasTransaction as setoran_kas' => function ($q) use ($periode) {
             if ($periode) {
                 $q->where('periode_id', $periode->id);
             }
-            $q->where('status', 'sudah_bayar');
-            // 🔥 PERUBAHAN DISINI: Hapus ->whereIn('tanggal', $dates)
-        }], 'jumlah')
-        ->with(['arisanTransaction' => function ($q) use ($periode) {
-            if ($periode) {
-                $q->where('periode_id', $periode->id);
-            }
-            $q->where('status', 'sudah_bayar')->with('periode');
-        }]);
+        }])
+            ->withSum(['kasTransaction as setoran_kas' => function ($q) use ($periode) {
+                if ($periode) {
+                    $q->where('periode_id', $periode->id);
+                }
+                $q->where('status', 'sudah_bayar');
+            }], 'jumlah')
+            ->withSum(['arisanTransaction as setoran_arisan' => function ($q) use ($periode) {
+                if ($periode) {
+                    $q->where('periode_id', $periode->id);
+                }
+                $q->where('status', 'sudah_bayar');
+            }], 'jumlah')
+            ->with(['arisanTransaction' => function ($q) use ($periode) {
+                if ($periode) {
+                    $q->where('periode_id', $periode->id);
+                }
+                $q->where('status', 'sudah_bayar')->with('periode');
+            }]);
 
         // FILTER: RT
         if ($request->filled('rt') && $request->rt !== 'semua') {
@@ -74,12 +79,30 @@ class WargaController extends Controller
             $query->where('nama', 'like', '%' . $request->q . '%');
         }
 
+        $kasOnly = $request->boolean('kas_only');
+        $arisanOnly = $request->boolean('arisan_only');
+
+        if ($kasOnly && !$arisanOnly) {
+            $query->where('tipe_warga', 'kas');
+        } elseif ($arisanOnly && !$kasOnly) {
+            $query->where('tipe_warga', 'arisan');
+        }
+
+
         // FILTER: kas range interval
         if ($request->filled('kas_min')) {
             $query->having('setoran_kas', '>=', $request->kas_min);
         }
         if ($request->filled('kas_max')) {
             $query->having('setoran_kas', '<=', $request->kas_max);
+        }
+
+        if ($request->filled('arisan_min')) {
+            $query->having('setoran_arisan', '>=', $request->arisan_min);
+        }
+
+        if ($request->filled('arisan_max')) {
+            $query->having('setoran_arisan', '<=', $request->arisan_max);
         }
 
         // FILTER: Arisan
@@ -115,6 +138,8 @@ class WargaController extends Controller
                 'q' => $request->q ?? null,
                 'kas_min' => $request->kas_min ?? null,
                 'kas_max' => $request->kas_max ?? null,
+                'arisan_min' => $request->arisan_min ?? null,
+                'arisan_max' => $request->arisan_max ?? null,
                 'arisan_status' => $request->arisan_status ?? 'semua',
             ],
 
