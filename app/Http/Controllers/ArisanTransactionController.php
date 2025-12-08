@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ArisanTransaction;
 use App\Models\Periode;
+use App\Models\Warga;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -188,9 +189,12 @@ class ArisanTransactionController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
+        $listRT = Warga::select('rt')->distinct()->pluck('rt');
+
         return response()->json([
             'message' => 'Rekap arisan berhasil diambil',
             'periode' => $result['periodeNama'],
+            'list_rt' => $listRT,
             'nominal_arisan' => $result['nominal'],
             'dates'   => $result['dates'],
             'filters' => $result['filters'],

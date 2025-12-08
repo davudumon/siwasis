@@ -101,7 +101,6 @@ class WargaController extends Controller
             return $item;
         });
 
-
         $listRT = Warga::select('rt')->distinct()->pluck('rt');
 
         return response()->json([

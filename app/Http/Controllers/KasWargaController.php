@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\KasWarga;
 use App\Models\Periode;
+use App\Models\Warga;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -62,7 +63,7 @@ class KasWargaController extends Controller
             $endDate   = Carbon::parse($periode->tanggal_selesai)->endOfDay();
             $periodeNama = $periode->nama;
             $periodeId   = $periode->id;
-            $nominalKas  = $periode->nominal ?? 0; 
+            $nominalKas  = $periode->nominal ?? 0;
         } elseif ($request->filled('year')) {
             $year = $request->year;
             $startDate = Carbon::create($year, 1, 1)->startOfDay();
@@ -117,16 +118,6 @@ class KasWargaController extends Controller
                 $request->rt,
                 fn($q) =>
                 $q->where('warga.rt', $request->rt)
-            )
-            ->when(
-                $request->min,
-                fn($q) =>
-                $q->where('kas_warga.jumlah', '>=', $request->min)
-            )
-            ->when(
-                $request->max,
-                fn($q) =>
-                $q->where('kas_warga.jumlah', '<=', $request->max)
             )
             ->when(
                 $request->from && $request->to,
@@ -206,7 +197,19 @@ class KasWargaController extends Controller
             ];
         })->values();
 
+        if ($request->filled('min')) {
+            $min = (float) $request->min;
+            $groupedData = $groupedData->filter(function ($row) use ($min) {
+                return ($row['total_setoran'] ?? 0) >= $min;
+            })->values();
+        }
 
+        if ($request->filled('max')) {
+            $max = (float) $request->max;
+            $groupedData = $groupedData->filter(function ($row) use ($max) {
+                return ($row['total_setoran'] ?? 0) <= $max;
+            })->values();
+        }
         // ============================================================
         // PAGINATE PER WARGA (BUKAN PER TRANSAKSI)
         // ============================================================
@@ -221,21 +224,21 @@ class KasWargaController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
+        $listRt = Warga::select('rt')->distinct()->pluck('rt');
+
         // ============================================================
         // RETURN JSON
         // ============================================================
         return response()->json([
             'message' => 'Rekap kas warga berhasil diambil',
             'periode' => $result['periodeNama'],
+            'list_rt' => $listRt,
             'nominal_kas' => $result['nominalKas'],
             'dates' => $result['dates'],
             'filters' => $result['filters'],
             'data' => $paginated,
         ]);
     }
-
-
-
 
     /**
      * API POST simpan/update rekap kas warga
