@@ -261,7 +261,6 @@ class ArisanTransactionController extends Controller
      */
     public function exportRekap(Request $request)
     {
-        // 1. Ambil Data (tanpa paginasi)
         $result = $this->getRekapData($request);
 
         if ($result['error']) {
@@ -271,97 +270,126 @@ class ArisanTransactionController extends Controller
         $allTransactions = $result['data'];
         $dates = $result['dates'];
         $periodeNama = $result['periodeNama'];
-        $nominalArisan = $result['nominal'];
 
-        // 2. Re-organisasi data ke format Rekapitulasi per Warga
+        // same grouping logic you used
         $rekapData = $allTransactions->groupBy('warga_id')->map(function ($transactions) use ($dates) {
-            /** @var \Illuminate\Support\Collection $transactions */
-
-            // Perbaikan: Menggunakan first() method dengan tanda kurung
             $warga = $transactions->first();
             $totalSetoran = 0;
-            $paymentStatus = []; // Status bayar per tanggal
+            $paymentStatus = [];
 
-            foreach ($dates as $date) {
-                // Perbaikan: Menggunakan firstWhere() method dengan tanda kurung
-                $trx = $transactions->firstWhere('tanggal', $date);
+            foreach ($dates as $d) {
+                $trx = $transactions->firstWhere('tanggal', $d);
 
                 if ($trx) {
-                    $status = $trx->status === 'sudah_bayar' ? '✅' : '❌'; // Tanda checklist
+                    $status = $trx->status === 'sudah_bayar' ? '✔' : '✘';
                     $totalSetoran += $trx->jumlah;
-                    $paymentStatus[$date] = [
-                        'status' => $status,
-                        'jumlah' => $trx->jumlah,
-                    ];
                 } else {
-                    // Jika tidak ada transaksi
-                    $paymentStatus[$date] = [
-                        'status' => '⬜',
-                        'jumlah' => 0,
-                    ];
+                    $status = '○';
                 }
+
+                $paymentStatus[$d] = $status;
             }
 
             return [
-                'id' => $warga->warga_id,
                 'nama' => $warga->nama,
                 'rt' => $warga->rt,
                 'total_setoran' => $totalSetoran,
                 'payment_status' => $paymentStatus,
             ];
-        })->values(); // Ambil nilainya
+        })->values();
 
-        // 3. Buat dan Kembalikan CSV
-        $fileName = 'rekap_arisan_' . Str::slug($periodeNama) . '_' . now()->format('Ymd_His') . '.csv';
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
-        ];
+        // ===============================
+        // Generate XML untuk sheet Excel
+        // ===============================
+        $xmlRows = '';
 
-        // Buat StreamedResponse
-        $callback = function () use ($rekapData, $dates, $nominalArisan) {
-            $file = fopen('php://output', 'w');
+        // header
+        $xmlRows .= '<row>';
+        $xmlRows .= '<c t="inlineStr"><is><t>Nama Warga</t></is></c>';
+        $xmlRows .= '<c t="inlineStr"><is><t>RT</t></is></c>';
+        $xmlRows .= '<c t="inlineStr"><is><t>Total Setoran</t></is></c>';
 
-            // Header Utama
-            $mainHeader = ['Nama Warga', 'RT', 'Status Arisan', 'Total Setoran'];
-            $dateHeaders = [];
-            foreach ($dates as $date) {
-                // Tambahkan header untuk setiap tanggal (kolom status)
-                $dateHeaders[] = Carbon::parse($date)->format('d/m/Y');
+        foreach ($dates as $date) {
+            $xmlRows .= '<c t="inlineStr"><is><t>' . \Carbon\Carbon::parse($date)->format("d/m/Y") . '</t></is></c>';
+        }
+        $xmlRows .= '</row>';
+
+
+        // data rows
+        foreach ($rekapData as $item) {
+            $xmlRows .= '<row>';
+
+            $xmlRows .= '<c t="inlineStr"><is><t>' . htmlspecialchars($item['nama']) . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $item['rt'] . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $item['total_setoran'] . '</t></is></c>';
+
+            foreach ($dates as $d) {
+                $xmlRows .= '<c t="inlineStr"><is><t>' . $item['payment_status'][$d] . '</t></is></c>';
             }
 
-            fputcsv($file, array_merge($mainHeader, $dateHeaders));
-
-            // Isi Data Rekap
-            foreach ($rekapData as $data) {
-                $row = [
-                    $data['nama'],
-                    $data['rt'],
-                    $data['total_setoran'],
-                ];
-
-                // Isi Status Bayar per tanggal
-                foreach ($dates as $date) {
-                    // Hanya tampilkan status (✅/❌/⬜)
-                    $row[] = $data['payment_status'][$date]['status'] ?? '⬜';
-                }
-
-                fputcsv($file, $row);
-            }
-
-            // Baris Summary (Opsional)
-            $totalSetoranSemua = $rekapData->sum('total_setoran');
-            fputcsv($file, []); // Baris kosong
-            fputcsv($file, ['Total Setoran Semua Warga:', '', '', $totalSetoranSemua]);
-            if ($nominalArisan > 0) {
-                fputcsv($file, ['Nominal Setoran Per Periode:', '', '', $nominalArisan]);
-            }
+            $xmlRows .= '</row>';
+        }
 
 
-            fclose($file);
-        };
+        // ===============================
+        // Buat ZIP struktur XLSX
+        // ===============================
 
-        return new StreamedResponse($callback, 200, $headers);
+        // Temp file
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx');
+
+        $zip = new \ZipArchive();
+        $zip->open($tmp, \ZipArchive::OVERWRITE);
+
+        // [Content_Types].xml
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+    <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+</Types>');
+
+        // rels
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>');
+
+        // workbook relationships
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>');
+
+        // workbook xml
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+    <sheets>
+        <sheet name="Rekap" sheetId="1" r:id="rId1"/>
+    </sheets>
+</workbook>');
+
+        // sheet XML (isi tabel)
+        $zip->addFromString('xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+    <sheetData>'
+            . $xmlRows .
+            '</sheetData>
+</worksheet>');
+
+        $zip->close();
+
+
+        // ===============================
+        // Return ke browser
+        // ===============================
+        $fileName = "rekap_arisan_" . Str::slug($periodeNama) . "_" . now()->format("Ymd_His") . ".xlsx";
+
+        return response()->download($tmp, $fileName, [
+            "Content-Type" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ])->deleteFileAfterSend(true);
     }
 }

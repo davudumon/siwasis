@@ -310,9 +310,11 @@ class KasWargaController extends Controller
         $periodeNama = $result['periodeNama'];
         $nominalKas = $result['nominalKas'];
 
-        // susun data per warga
+
+        // ========= SUSUN DATA =============
         $rekap = $all->groupBy('warga_id')->map(
             function ($items) use ($dates) {
+
                 $warga = $items->first();
                 $total = 0;
                 $payment = [];
@@ -322,70 +324,112 @@ class KasWargaController extends Controller
 
                     if ($trx) {
                         $total += $trx->jumlah;
-                        $payment[$date] = [
-                            'status' => $trx->status === 'sudah_bayar' ? '✅' : '❌',
-                            'jumlah' => $trx->jumlah,
-                        ];
+                        $payment[$date] = $trx->status === 'sudah_bayar' ? '✔' : '✘';
                     } else {
-                        $payment[$date] = [
-                            'status' => '⬜',
-                            'jumlah' => 0,
-                        ];
+                        $payment[$date] = '○';
                     }
                 }
 
                 return [
-                    'id' => $warga->warga_id,
-                    'nama' => $warga->nama,
-                    'rt' => $warga->rt,
-                    'total_setoran' => $total,
-                    'payment_status' => $payment,
+                    'nama'          => $warga->nama,
+                    'rt'            => $warga->rt,
+                    'total'         => $total,
+                    'payment'       => $payment,
                 ];
             }
         )->values();
 
-        $fileName = 'rekap_kas_' . Str::slug($periodeNama) . '_' . now()->format('Ymd_His') . '.csv';
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename=\"$fileName\""
-        ];
+        // ======= BUAT XML SHEET ===========
+        $xmlRows = '';
 
-        $callback = function () use ($rekap, $dates, $nominalKas) {
-            $file = fopen('php://output', 'w');
+        // header row
+        $xmlRows .= '<row>';
+        $xmlRows .= '<c t="inlineStr"><is><t>Nama Warga</t></is></c>';
+        $xmlRows .= '<c t="inlineStr"><is><t>RT</t></is></c>';
+        $xmlRows .= '<c t="inlineStr"><is><t>Total Setoran</t></is></c>';
 
-            // header
-            $mainHeader = ['Nama Warga', 'RT', 'Total Setoran'];
-            $dateHeaders = [];
+        foreach ($dates as $d) {
+            $xmlRows .= '<c t="inlineStr"><is><t>' . \Carbon\Carbon::parse($d)->format('d/m/Y') . '</t></is></c>';
+        }
+        $xmlRows .= '</row>';
 
-            foreach ($dates as $date) {
-                $dateHeaders[] = Carbon::parse($date)->format('d/m/Y');
+        // data rows
+        foreach ($rekap as $item) {
+            $xmlRows .= '<row>';
+
+            $xmlRows .= '<c t="inlineStr"><is><t>' . htmlspecialchars($item['nama']) . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $item['rt'] . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $item['total'] . '</t></is></c>';
+
+            foreach ($dates as $dt) {
+                $xmlRows .= '<c t="inlineStr"><is><t>' . $item['payment'][$dt] . '</t></is></c>';
             }
 
-            fputcsv($file, array_merge($mainHeader, $dateHeaders));
+            $xmlRows .= '</row>';
+        }
 
-            foreach ($rekap as $row) {
-                $line = [
-                    $row['nama'],
-                    $row['rt'],
-                    $row['total_setoran'],
-                ];
+        // Summary
+        $xmlRows .= '<row></row>';
+        $xmlRows .= '<row>
+                    <c t="inlineStr"><is><t>Total Semua</t></is></c>
+                    <c></c>
+                    <c t="inlineStr"><is><t>' . $rekap->sum('total') . '</t></is></c>
+                 </row>';
+        $xmlRows .= '<row>
+                    <c t="inlineStr"><is><t>Nominal Kas Per Periode</t></is></c>
+                    <c></c>
+                    <c t="inlineStr"><is><t>' . $nominalKas . '</t></is></c>
+                 </row>';
 
-                foreach ($dates as $d) {
-                    $line[] = $row['payment_status'][$d]['status'] ?? '⬜';
-                }
 
-                fputcsv($file, $line);
-            }
+        // ===== BUAT FILE XLSX (ZIP + XML) =====
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx');
 
-            // summary
-            fputcsv($file, []);
-            fputcsv($file, ['Total Semua:', '', $rekap->sum('total_setoran')]);
-            fputcsv($file, ['Nominal Kas Per Periode:', '', $nominalKas]);
+        $zip = new \ZipArchive();
+        $zip->open($tmp, \ZipArchive::OVERWRITE);
 
-            fclose($file);
-        };
+        // Required files
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>
+    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+        <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+    </Types>');
 
-        return new StreamedResponse($callback, 200, $headers);
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+    </Relationships>');
+
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+    </Relationships>');
+
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?>
+    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <sheets>
+            <sheet name="Rekap Kas" sheetId="1" r:id="rId1"/>
+        </sheets>
+    </workbook>');
+
+        // sheet data
+        $zip->addFromString('xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+        <sheetData>' . $xmlRows . '</sheetData>
+    </worksheet>');
+
+        $zip->close();
+
+
+        // send to browser
+        $filename = 'rekap_kas_' . Str::slug($periodeNama) . '_' . now()->format('Ymd_His') . '.xlsx';
+
+        return response()->download($tmp, $filename, [
+            "Content-Type" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ])->deleteFileAfterSend(true);
     }
 }

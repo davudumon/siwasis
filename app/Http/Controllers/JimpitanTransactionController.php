@@ -243,7 +243,7 @@ class JimpitanTransactionController extends Controller
      */
     public function export(Request $request)
     {
-        // Siapkan Query (Sama seperti index, tetapi tanpa paginasi)
+        // Query data
         $query = JimpitanTransaction::with('admin');
 
         if ($request->filled('tipe')) {
@@ -261,44 +261,95 @@ class JimpitanTransactionController extends Controller
 
         $transaksi = $query->orderBy('tanggal', 'asc')->get();
 
-        $fileName = 'laporan_jimpitan_' . now()->format('Ymd_His') . '.csv';
+        // ====== XML ROWS ======
+        $xmlRows = '';
 
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $fileName . '"',
-        ];
+        // Header row
+        $headers = ['ID', 'Admin', 'Tipe', 'Jumlah', 'Keterangan', 'Tanggal', 'Waktu Input'];
+        $xmlRows .= '<row>';
+        foreach ($headers as $h) {
+            $xmlRows .= '<c t="inlineStr"><is><t>' . htmlspecialchars($h) . '</t></is></c>';
+        }
+        $xmlRows .= '</row>';
 
-        // Buat StreamedResponse untuk efisiensi memori
-        $callback = function () use ($transaksi) {
-            $file = fopen('php://output', 'w');
+        // Data rows
+        foreach ($transaksi as $t) {
+            $xmlRows .= '<row>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $t->id . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . htmlspecialchars($t->admin->name ?? 'N/A') . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $t->tipe . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $t->jumlah . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . htmlspecialchars($t->keterangan) . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $t->tanggal . '</t></is></c>';
+            $xmlRows .= '<c t="inlineStr"><is><t>' . $t->created_at . '</t></is></c>';
+            $xmlRows .= '</row>';
+        }
 
-            // Header Kolom CSV
-            fputcsv($file, ['ID', 'Admin', 'Tipe', 'Jumlah', 'Keterangan', 'Tanggal Transaksi', 'Waktu Input']);
+        // Hitung saldo akhir
+        $saldo = 0;
+        foreach ($transaksi as $trx) {
+            $saldo += $trx->tipe === 'pemasukan' ? $trx->jumlah : -$trx->jumlah;
+        }
 
-            // Data Saldo Akhir (opsional, dihitung di akhir file)
-            $saldo = 0;
+        // Summary row
+        $xmlRows .= '<row></row>';
+        $xmlRows .= '
+        <row>
+            <c t="inlineStr"><is><t></t></is></c>
+            <c t="inlineStr"><is><t></t></is></c>
+            <c t="inlineStr"><is><t>SALDO AKHIR TOTAL</t></is></c>
+            <c t="inlineStr"><is><t>' . $saldo . '</t></is></c>
+        </row>
+    ';
 
-            // Isi Data Transaksi
-            foreach ($transaksi as $trx) {
-                $saldo += $trx->tipe === 'pemasukan' ? $trx->jumlah : -$trx->jumlah;
+        // ====== ZIP XLSX ======
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx');
 
-                fputcsv($file, [
-                    $trx->id,
-                    $trx->admin->name ?? 'N/A',
-                    $trx->tipe,
-                    $trx->jumlah,
-                    $trx->keterangan,
-                    $trx->tanggal,
-                    $trx->created_at,
-                ]);
-            }
+        $zip = new \ZipArchive();
+        $zip->open($tmp, \ZipArchive::OVERWRITE);
 
-            // Baris Saldo Akhir Total
-            fputcsv($file, ['', '', 'SALDO AKHIR TOTAL', $saldo, '', '', '']);
+        // Required files
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+    <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+</Types>');
 
-            fclose($file);
-        };
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" 
+        Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" 
+        Target="xl/workbook.xml"/>
+</Relationships>');
 
-        return new StreamedResponse($callback, 200, $headers);
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" 
+        Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" 
+        Target="worksheets/sheet1.xml"/>
+</Relationships>');
+
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+    <sheets>
+        <sheet name="Laporan Jimpitan" sheetId="1" r:id="rId1"/>
+    </sheets>
+</workbook>');
+
+        $zip->addFromString('xl/worksheets/sheet1.xml', '<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+    <sheetData>' . $xmlRows . '</sheetData>
+</worksheet>');
+
+        $zip->close();
+
+        $filename = 'laporan_jimpitan_' . now()->format('Ymd_His') . '.xlsx';
+
+        return response()->download($tmp, $filename, [
+            "Content-Type" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ])->deleteFileAfterSend(true);
     }
 }
