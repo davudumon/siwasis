@@ -281,7 +281,7 @@ class ArisanTransactionController extends Controller
                 $trx = $transactions->firstWhere('tanggal', $d);
 
                 if ($trx) {
-                    $status = $trx->status === 'sudah_bayar' ? '✔' : '✘';
+                    $status = $trx->status === 'sudah_bayar' ? '✔' : '○';
                     $totalSetoran += $trx->jumlah;
                 } else {
                     $status = '○';

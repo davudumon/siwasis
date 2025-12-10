@@ -324,7 +324,7 @@ class KasWargaController extends Controller
 
                     if ($trx) {
                         $total += $trx->jumlah;
-                        $payment[$date] = $trx->status === 'sudah_bayar' ? '✔' : '✘';
+                        $payment[$date] = $trx->status === 'sudah_bayar' ? '✔' : '○';
                     } else {
                         $payment[$date] = '○';
                     }

@@ -18,7 +18,7 @@ return new class extends Migration
             $table->foreignId('admin_id')
                 ->constrained('admin')   
                 ->onDelete('cascade');
-            $table->decimal('jumlah');
+            $table->decimal('jumlah', 20, 2);
             $table->enum('tipe', ['pemasukan', 'pengeluaran']);
             $table->text('keterangan');
             $table->date('tanggal');

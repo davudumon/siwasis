@@ -15,7 +15,7 @@ return new class extends Migration
                 ->onDelete('cascade');
             $table->date('tanggal');
             $table->enum('tipe', ['pemasukan', 'pengeluaran']);
-            $table->decimal('jumlah');
+            $table->decimal('jumlah', 20, 2);
             $table->text('keterangan');
             $table->timestamps();
         });
